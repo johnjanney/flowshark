@@ -144,7 +144,7 @@ export function textSVG(
 
   return (
     `<text font-family="${escapeXML(style.fontFamily)}" font-size="${style.fontSize}"` +
-    `${weight}${italic}${decoration} fill="${style.color}" text-anchor="${anchor}">` +
+    `${weight}${italic}${decoration} fill="${escapeXML(style.color)}" text-anchor="${anchor}">` +
     spans +
     `</text>`
   );

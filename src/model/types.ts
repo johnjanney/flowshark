@@ -84,6 +84,8 @@ export type ShapeType =
   | "cylinder"
   | "cloud"
   | "star"
+  | "line"
+  | "arrow"
   | "text"
   | "image-placeholder"
   | "icon-placeholder";

@@ -113,6 +113,32 @@ function starPath(w: number, h: number): string {
   return pts(points);
 }
 
+/** Diagonal line from bottom-left to top-right of the shape's box. */
+function linePath(w: number, h: number): string {
+  return `M0,${round(h)} L${round(w)},0`;
+}
+
+/** Diagonal line with a filled arrowhead at the top-right end. */
+function arrowPath(w: number, h: number): string {
+  const x0 = 0, y0 = h, x1 = w, y1 = 0;
+  const dx = x1 - x0, dy = y1 - y0;
+  const len = Math.hypot(dx, dy) || 1;
+  const ux = dx / len, uy = dy / len;
+  const px = -uy, py = ux;
+  const headLen = Math.min(len * 0.35, Math.min(w, h) * 0.6, 26);
+  const headWidth = headLen * 0.8;
+  const backX = x1 - ux * headLen;
+  const backY = y1 - uy * headLen;
+  const leftX = backX + (px * headWidth) / 2;
+  const leftY = backY + (py * headWidth) / 2;
+  const rightX = backX - (px * headWidth) / 2;
+  const rightY = backY - (py * headWidth) / 2;
+  return (
+    `M${round(x0)},${round(y0)} L${round(backX)},${round(backY)} ` +
+    `M${round(leftX)},${round(leftY)} L${round(x1)},${round(y1)} L${round(rightX)},${round(rightY)} Z`
+  );
+}
+
 export const SHAPE_DEFS: Record<ShapeType, ShapeDef> = {
   // ---- Flowchart shapes -------------------------------------------------
   process: {
@@ -510,6 +536,32 @@ export const SHAPE_DEFS: Record<ShapeType, ShapeDef> = {
     path: starPath,
     textInset: (w, h) => ({ x: w * 0.3, y: h * 0.35, w: w * 0.4, h: h * 0.3 }),
     keywords: ["favorite", "badge"],
+  },
+  line: {
+    type: "line",
+    label: "Line",
+    category: "general",
+    defaultSize: { w: 120, h: 60 },
+    path: linePath,
+    anchors: [
+      { id: "start", rx: 0, ry: 1 },
+      { id: "end", rx: 1, ry: 0 },
+    ],
+    defaultFill: { color: "#ffffff", opacity: 0 },
+    keywords: ["segment", "diagonal", "straight"],
+  },
+  arrow: {
+    type: "arrow",
+    label: "Arrow",
+    category: "general",
+    defaultSize: { w: 120, h: 60 },
+    path: arrowPath,
+    anchors: [
+      { id: "start", rx: 0, ry: 1 },
+      { id: "end", rx: 1, ry: 0 },
+    ],
+    defaultFill: { color: "#4b5563", opacity: 1 },
+    keywords: ["directional", "pointer"],
   },
   text: {
     type: "text",

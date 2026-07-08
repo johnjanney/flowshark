@@ -15,6 +15,7 @@ import {
   rotatePoint,
 } from "../core/geometry";
 import { anchorPoint, getShapeDef, shapeAnchors } from "../shapes/registry";
+import { escapeXML } from "../core/text";
 
 export interface ResolvedEnd {
   point: Point;
@@ -338,6 +339,7 @@ export function capSVG(
   });
   const P = (p: Point) => `${fmt(p.x)},${fmt(p.y)}`;
   const sw = Math.max(1, strokeWidth);
+  color = escapeXML(color);
 
   switch (style) {
     case "arrow": {

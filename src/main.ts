@@ -10,6 +10,8 @@ import { buildStatusBar } from "./ui/statusbar";
 import { installShortcuts } from "./ui/shortcuts";
 import { checkRecovery, clearAutosave, startAutosave } from "./ui/autosave";
 import { newShape, nextZ } from "./model/defaults";
+import { isSafeImageDataUrl } from "./core/safety";
+import { toast } from "./ui/dialogs";
 
 const THEME_KEY = "flowshark.theme";
 
@@ -75,18 +77,31 @@ function main(): void {
   });
 
   installShortcuts(editor, interactions, actions);
-  startAutosave(editor);
+  startAutosave(editor, () => {
+    toast(
+      "Autosave couldn't keep up (this diagram may be too large to recover automatically). Save your work manually to be safe.",
+      true
+    );
+  });
 
   // paste image from system clipboard
   window.addEventListener("paste", (e) => {
     const items = e.clipboardData?.items;
     if (!items) return;
     for (const item of items) {
-      if (item.type.startsWith("image/")) {
+      // SVG is deliberately excluded: sanitizing arbitrary attacker-controlled
+      // SVG markup correctly needs a real XML/DOM sanitizer, which this app
+      // doesn't bundle yet (see OPENQUESTIONS.md).
+      if (item.type.startsWith("image/") && item.type !== "image/svg+xml") {
         const file = item.getAsFile();
         if (!file) continue;
         const reader = new FileReader();
         reader.onload = () => {
+          const dataUrl = reader.result as string;
+          if (!isSafeImageDataUrl(dataUrl)) {
+            toast("That clipboard image couldn't be pasted (unsupported or oversized format).", true);
+            return;
+          }
           const visible = view.visibleDocRect();
           editor.apply("Paste image", (doc) => {
             const s = newShape(
@@ -97,7 +112,7 @@ function main(): void {
             );
             s.w = 160;
             s.h = 120;
-            s.imageSrc = reader.result as string;
+            s.imageSrc = dataUrl;
             s.stroke.width = 0;
             doc.shapes.push(s);
             editor.selection = new Set([s.id]);

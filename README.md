@@ -118,6 +118,8 @@ to a draft GitHub release.
 | [CHANGELOG.md](CHANGELOG.md) | Version history (Keep a Changelog format) |
 | [OPENQUESTIONS.md](OPENQUESTIONS.md) | Open and resolved questions/decisions |
 | [VERSIONING.md](VERSIONING.md) | How versions, releases, and the file-format schema are managed |
+| [CODEX-REVIEW.md](CODEX-REVIEW.md) | Independent quality/security audit |
+| [CODEX-REVIEW-RESPONSE.md](CODEX-REVIEW-RESPONSE.md) | Verification of and response to that audit |
 
 ## Version management (summary)
 

@@ -209,9 +209,11 @@ export function buildToolbar(
   title.id = "doc-title";
   title.setAttribute("aria-label", "Document title");
   title.addEventListener("change", () => {
-    editor.doc.title = title.value;
-    editor.dirty = true;
-    editor.notify();
+    const value = title.value;
+    if (value === editor.doc.title) return;
+    editor.apply("Rename document", (doc) => {
+      doc.title = value;
+    });
   });
 
   // ---- tool buttons ----

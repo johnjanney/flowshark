@@ -21,7 +21,7 @@ describe("serialization", () => {
     const json = serializeDoc(doc);
     const parsed = parseDoc(json);
     expect(parsed.title).toBe("Test diagram");
-    expect(parsed.schemaVersion).toBeUndefined; // field exists on doc
+    expect(parsed.schemaVersion).toBe(SCHEMA_VERSION);
     expect(parsed.shapes).toHaveLength(2);
     expect(parsed.connectors).toHaveLength(1);
     expect(parsed.shapes[0].id).toBe(a.id);
@@ -77,5 +77,69 @@ describe("serialization", () => {
     raw.shapes[0].imageSrc = "javascript:alert(1)";
     const parsed = parseDoc(JSON.stringify(raw));
     expect(parsed.shapes[0].imageSrc).toBeNull();
+  });
+
+  it("rejects SVG data URLs as imageSrc (no SVG sanitizer available yet)", () => {
+    const { doc } = sampleDoc();
+    const raw = JSON.parse(serializeDoc(doc));
+    raw.shapes[0].imageSrc =
+      "data:image/svg+xml;base64," + btoa("<svg onload='alert(1)'></svg>");
+    const parsed = parseDoc(JSON.stringify(raw));
+    expect(parsed.shapes[0].imageSrc).toBeNull();
+  });
+
+  it("accepts a well-formed raster data URL as imageSrc", () => {
+    const { doc } = sampleDoc();
+    const raw = JSON.parse(serializeDoc(doc));
+    const pngDataUrl =
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+    raw.shapes[0].imageSrc = pngDataUrl;
+    const parsed = parseDoc(JSON.stringify(raw));
+    expect(parsed.shapes[0].imageSrc).toBe(pngDataUrl);
+  });
+
+  it("drops shapes/connectors whose id would break out of an SVG attribute", () => {
+    const { doc } = sampleDoc();
+    const raw = JSON.parse(serializeDoc(doc));
+    raw.shapes[0].id = 'sh_1" onmouseover="alert(1)';
+    raw.connectors[0].id = 'cn_1"><script>alert(1)</script>';
+    const parsed = parseDoc(JSON.stringify(raw));
+    // the malicious shape is dropped outright (fails the safe-id check)
+    expect(parsed.shapes.map((s) => s.id)).not.toContain('sh_1" onmouseover="alert(1)');
+    expect(parsed.shapes).toHaveLength(1);
+    // the connector referencing it is also gone (bad id itself, independent of the dangling reference)
+    expect(parsed.connectors).toHaveLength(0);
+  });
+
+  it("replaces malicious color/style values with a safe default instead of preserving them", () => {
+    const { doc } = sampleDoc();
+    const raw = JSON.parse(serializeDoc(doc));
+    const payload = 'red" onmouseover="alert(document.cookie)';
+    raw.shapes[1].fill.color = payload;
+    raw.shapes[1].stroke.color = payload;
+    raw.shapes[1].textStyle.color = payload;
+    raw.canvas.background = payload;
+    const parsed = parseDoc(JSON.stringify(raw));
+    for (const value of [
+      parsed.shapes[1].fill.color,
+      parsed.shapes[1].stroke.color,
+      parsed.shapes[1].textStyle.color,
+      parsed.canvas.background,
+    ]) {
+      expect(value).not.toContain('"');
+      expect(value).not.toBe(payload);
+    }
+  });
+
+  it("accepts ordinary hex, rgb(), and named colors unchanged", () => {
+    const { doc } = sampleDoc();
+    const raw = JSON.parse(serializeDoc(doc));
+    raw.shapes[1].fill.color = "#a1b2c3";
+    raw.shapes[1].stroke.color = "rgba(10, 20, 30, 0.5)";
+    raw.shapes[1].textStyle.color = "steelblue";
+    const parsed = parseDoc(JSON.stringify(raw));
+    expect(parsed.shapes[1].fill.color).toBe("#a1b2c3");
+    expect(parsed.shapes[1].stroke.color).toBe("rgba(10, 20, 30, 0.5)");
+    expect(parsed.shapes[1].textStyle.color).toBe("steelblue");
   });
 });

@@ -18,6 +18,7 @@ import {
 import { confirmDialog, exportDialog, templateDialog, toast } from "./dialogs";
 import { newDoc, newShape, nextZ } from "../model/defaults";
 import { clearAutosave } from "./autosave";
+import { isSafeImageDataUrl } from "../core/safety";
 import type { Template } from "../templates";
 
 /**
@@ -96,10 +97,9 @@ export class Actions {
       );
       if (!result) return false;
       this.editor.filePath = result.path;
-      this.editor.dirty = false;
+      this.editor.markSaved();
       addRecentFile(result.path, result.name);
       clearAutosave();
-      this.editor.notify();
       toast(`Saved ${result.name}`);
       return true;
     } catch (err) {
@@ -163,6 +163,10 @@ export class Actions {
   async importImage(): Promise<void> {
     const img = await openImageFile();
     if (!img) return;
+    if (!isSafeImageDataUrl(img.dataUrl)) {
+      toast("That image couldn't be imported (unsupported or oversized format).", true);
+      return;
+    }
     const view = this.view.visibleDocRect();
     this.editor.apply("Import image", (doc) => {
       const s = newShape(

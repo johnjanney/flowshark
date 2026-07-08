@@ -55,6 +55,15 @@ export class Editor {
   private undoStack: Snapshot[] = [];
   private redoStack: Snapshot[] = [];
   private pending: Snapshot | null = null;
+  /**
+   * undoStack.length at the moment the document was last saved (or loaded),
+   * so `dirty` reflects "does the content differ from disk", not just
+   * "has undo/redo touched anything". null means the saved state is no
+   * longer reachable via undo/redo (a new edit was made after undoing past
+   * it, discarding that branch) — in that case the doc is always dirty
+   * until the next save. See recomputeDirty().
+   */
+  private savedDepth: number | null = 0;
   private listeners = new Set<() => void>();
   clipboard: { shapes: Shape[]; connectors: Connector[]; groups: Group[] } | null = null;
   styleClipboard: StyleClipboard | null = null;
@@ -81,14 +90,33 @@ export class Editor {
   /** Commit the pending mutation to the undo stack. */
   commit(): void {
     if (this.pending) {
+      // If the saved state currently lives on the redo branch we're about
+      // to discard, it becomes permanently unreachable.
+      if (this.savedDepth !== null && this.savedDepth > this.undoStack.length) {
+        this.savedDepth = null;
+      }
       this.undoStack.push(this.pending);
-      if (this.undoStack.length > MAX_UNDO) this.undoStack.shift();
+      if (this.undoStack.length > MAX_UNDO) {
+        this.undoStack.shift();
+        if (this.savedDepth !== null) this.savedDepth = Math.max(0, this.savedDepth - 1);
+      }
       this.redoStack = [];
       this.pending = null;
-      this.dirty = true;
       this.doc.modifiedAt = new Date().toISOString();
+      this.recomputeDirty();
     }
     this.notify();
+  }
+
+  /** Mark the current state as matching what's on disk. */
+  markSaved(): void {
+    this.savedDepth = this.undoStack.length;
+    this.recomputeDirty();
+    this.notify();
+  }
+
+  private recomputeDirty(): void {
+    this.dirty = this.savedDepth !== this.undoStack.length;
   }
 
   /**
@@ -124,7 +152,7 @@ export class Editor {
     this.redoStack.push({ label: snap.label, doc: this.doc });
     this.doc = snap.doc;
     this.pruneSelection();
-    this.dirty = true;
+    this.recomputeDirty();
     this.notify();
   }
 
@@ -134,7 +162,7 @@ export class Editor {
     this.undoStack.push({ label: snap.label, doc: this.doc });
     this.doc = snap.doc;
     this.pruneSelection();
-    this.dirty = true;
+    this.recomputeDirty();
     this.notify();
   }
 
@@ -152,6 +180,7 @@ export class Editor {
     this.undoStack = [];
     this.redoStack = [];
     this.pending = null;
+    this.savedDepth = 0;
     this.dirty = false;
     this.pasteCount = 0;
     this.notify();

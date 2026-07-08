@@ -2,6 +2,12 @@
  * End-to-end smoke test: drives the built app in headless Chromium and
  * verifies the core editing loop works. Run `npx vite build` first, then
  * `node scripts/smoke.mjs`.
+ *
+ * By default this uses Playwright's own managed browser — run
+ * `npx playwright install chromium` once and it just works. Only set
+ * CHROMIUM_PATH if you need to point at a specific Chromium binary (e.g. a
+ * sandboxed CI image with browsers pre-installed at a fixed, non-default
+ * path).
  */
 import { chromium } from "playwright";
 import { preview } from "vite";
@@ -11,9 +17,9 @@ const OUT = process.env.SMOKE_OUT ?? "smoke-artifacts";
 mkdirSync(OUT, { recursive: true });
 
 const server = await preview({ preview: { port: 4173, strictPort: true } });
-const browser = await chromium.launch({
-  executablePath: process.env.CHROMIUM_PATH ?? "/opt/pw-browsers/chromium",
-});
+const browser = await chromium.launch(
+  process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {}
+);
 const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
 
 const errors = [];

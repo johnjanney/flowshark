@@ -168,27 +168,30 @@ export async function openImageFile(): Promise<{ dataUrl: string; name: string }
       reader.readAsDataURL(file);
     });
 
+  // SVG is deliberately not offered as an import format: sanitizing
+  // arbitrary attacker-controlled SVG markup correctly requires a real
+  // XML/DOM sanitizer, which this app doesn't bundle yet (see
+  // OPENQUESTIONS.md). The document sanitizer also rejects
+  // data:image/svg+xml as defense in depth, so an SVG picked here would be
+  // silently dropped on save/reopen anyway — better not to offer it.
   if (isTauri()) {
     const { open } = await import("@tauri-apps/plugin-dialog");
     const { readFile } = await import("@tauri-apps/plugin-fs");
     const path = await open({
       multiple: false,
-      filters: [
-        { name: "Images", extensions: ["png", "jpg", "jpeg", "webp", "svg"] },
-      ],
+      filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg", "webp"] }],
     });
     if (!path || typeof path !== "string") return null;
     const bytes = await readFile(path);
     const ext = path.split(".").pop()?.toLowerCase() ?? "png";
-    const mime =
-      ext === "svg" ? "image/svg+xml" : ext === "jpg" ? "image/jpeg" : `image/${ext}`;
+    const mime = ext === "jpg" ? "image/jpeg" : `image/${ext}`;
     const blob = new Blob([bytes as unknown as BlobPart], { type: mime });
     return { dataUrl: await toDataUrl(blob), name: basename(path) };
   }
   return new Promise((resolve) => {
     const input = document.createElement("input");
     input.type = "file";
-    input.accept = "image/png,image/jpeg,image/webp,image/svg+xml";
+    input.accept = "image/png,image/jpeg,image/webp";
     input.onchange = async () => {
       const file = input.files?.[0];
       if (!file) return resolve(null);

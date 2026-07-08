@@ -9,8 +9,67 @@ See [VERSIONING.md](VERSIONING.md) for how versions, releases, and the
 
 ## [Unreleased]
 
+### Security
+
+- **High**: fixed unescaped attribute interpolation that let a crafted
+  `.flowshark` file break out of SVG attribute context (fill/stroke/text
+  colors, element ids, connector caps, label background/border) and inject
+  arbitrary attributes/elements into the live renderer and PDF export path,
+  both of which render via `innerHTML`. Fixed by escaping every value at
+  render time (`src/canvas/render.ts`, `src/connectors/routing.ts`,
+  `src/core/text.ts`) and, as defense in depth, validating colors/ids
+  against a strict allowlist at the document-parse boundary
+  (`src/model/serialization.ts`, `src/core/safety.ts`). Regression tests
+  added in `tests/render.test.ts` and `tests/serialization.test.ts`. Found
+  by an independent Codex review — see
+  [CODEX-REVIEW-RESPONSE.md](CODEX-REVIEW-RESPONSE.md).
+- **Medium**: removed SVG as an accepted import/paste image format.
+  `data:image/svg+xml` was accepted with no sanitization (brief §13
+  requires sanitizing SVG imports); properly sanitizing arbitrary
+  attacker-controlled SVG needs a real XML/DOM sanitizer this app doesn't
+  bundle yet. `imageSrc` is now validated against a raster-only allowlist
+  at every entry point (file import, clipboard paste, and document
+  parsing), not just the file picker's extension filter.
+- **Medium**: narrowed the Tauri filesystem capability scope from
+  `$HOME/**` plus five other broad directories down to just
+  `$DOCUMENT/**`. Every file operation (open/save/export/import) goes
+  through the dialog plugin, which grants scope for the user-picked path
+  regardless of static scope; the narrower scope only affects reopening a
+  "recent file" that was last saved outside Documents on a new app launch,
+  which now needs File → Open instead of one click.
+
+### Fixed
+
+- `Editor.undo()`/`redo()` marked the document dirty unconditionally, so
+  undoing back to exactly the last-saved state still showed "unsaved
+  changes" and kept autosaving. Dirty is now computed from whether the
+  undo-stack position matches the position at last save, correctly
+  handling the case where a new edit branches off after undoing past the
+  save point (the old save point becomes unreachable and dirty stays true).
+- `scripts/smoke.mjs` hardcoded a sandbox-specific Chromium path as its
+  default, breaking `node scripts/smoke.mjs` on any other machine unless
+  `CHROMIUM_PATH` was set. Now defaults to Playwright's own managed
+  browser resolution (works after a plain `npx playwright install
+  chromium`) and only overrides the executable when `CHROMIUM_PATH` is
+  explicitly set.
+- Autosave failures (e.g. a large diagram with embedded images exceeding
+  the browser's storage quota) were silently swallowed forever. Now warns
+  the user once per session via a toast so they know to save manually.
+- `tests/serialization.test.ts` had a no-op assertion
+  (`expect(x).toBeUndefined` missing its call parens) that silently
+  validated nothing.
+- The document-title field bypassed undo/redo entirely, which could also
+  leave it out of sync with the new dirty-tracking fix above. Routed
+  through `editor.apply()` like every other edit — title changes are now
+  undoable too.
+
 ### Added
 
+- Two general shapes from the brief (§8.2) that were missing from the
+  shape library: **Line** and **Arrow**.
+- A **Connectors** category in the left shape panel (brief §8.13), between
+  General and Containers — click a connector type there to arm the
+  connector tool with it, same as the existing toolbar dropdown.
 - `INSTALLATION.md` — a step-by-step installation guide for Windows on ARM
   that assumes no prerequisites are already installed (Git, Node.js, Rust,
   and the Visual C++ Build Tools with the ARM64 target component), based on

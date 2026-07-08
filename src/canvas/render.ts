@@ -38,9 +38,9 @@ export function shapeSVG(s: Shape, forExport = false): string {
       ? ` rotate(${fmt(s.rotation)},${fmt(s.w / 2)},${fmt(s.h / 2)})`
       : "");
 
-  let body = `<path d="${d}" fill="${s.fill.color}" fill-opacity="${s.fill.opacity}"`;
+  let body = `<path d="${d}" fill="${escapeXML(s.fill.color)}" fill-opacity="${s.fill.opacity}"`;
   if (s.stroke.width > 0) {
-    body += ` stroke="${s.stroke.color}" stroke-width="${s.stroke.width}"`;
+    body += ` stroke="${escapeXML(s.stroke.color)}" stroke-width="${s.stroke.width}"`;
     if (dash) body += ` stroke-dasharray="${dash}"`;
   } else {
     body += ` stroke="none"`;
@@ -52,7 +52,7 @@ export function shapeSVG(s: Shape, forExport = false): string {
       s.w
     )}" height="${fmt(s.h)}" preserveAspectRatio="xMidYMid meet"/>`;
   } else if (deco && s.stroke.width > 0) {
-    body += `<path d="${deco}" fill="none" stroke="${s.stroke.color}" stroke-width="${s.stroke.width}"${
+    body += `<path d="${deco}" fill="none" stroke="${escapeXML(s.stroke.color)}" stroke-width="${s.stroke.width}"${
       dash ? ` stroke-dasharray="${dash}"` : ""
     }/>`;
   }
@@ -68,13 +68,13 @@ export function shapeSVG(s: Shape, forExport = false): string {
         s.h / 2 + style.fontSize * 0.35
       )}" font-family="${escapeXML(style.fontFamily)}" font-size="${style.fontSize}"${
         style.bold ? ' font-weight="700"' : ""
-      } fill="${style.color}" text-anchor="middle">${escapeXML(s.text)}</text>`;
+      } fill="${escapeXML(style.color)}" text-anchor="middle">${escapeXML(s.text)}</text>`;
     } else {
       body += textSVG(s.text, s.textStyle, inset, s.textPadding);
     }
   }
 
-  return `<g data-id="${s.id}" data-kind="shape" transform="${transform}"${
+  return `<g data-id="${escapeXML(s.id)}" data-kind="shape" transform="${transform}"${
     s.hidden ? ' opacity="0.25"' : ""
   }>${body}</g>`;
 }
@@ -87,7 +87,7 @@ export function connectorSVG(doc: FlowDoc, c: Connector, forExport = false): str
   const poly = route.polyline;
 
   let body =
-    `<path d="${route.d}" fill="none" stroke="${c.stroke.color}" ` +
+    `<path d="${route.d}" fill="none" stroke="${escapeXML(c.stroke.color)}" ` +
     `stroke-width="${c.stroke.width}"${dash ? ` stroke-dasharray="${dash}"` : ""} ` +
     `stroke-linecap="round" stroke-linejoin="round"/>`;
   // invisible wide path for easy hit-testing on screen
@@ -134,20 +134,21 @@ export function connectorSVG(doc: FlowDoc, c: Connector, forExport = false): str
     const wMax = Math.max(...lines.map((l) => measureTextWidth(l, label.style)), 8);
     const totalH = lines.length * lh;
     const pad = 3;
+    const labelId = escapeXML(label.id);
     if (label.background) {
-      body += `<rect data-label-id="${label.id}" x="${fmt(cx - wMax / 2 - pad)}" y="${fmt(
+      body += `<rect data-label-id="${labelId}" x="${fmt(cx - wMax / 2 - pad)}" y="${fmt(
         cy - totalH / 2 - pad
-      )}" width="${fmt(wMax + pad * 2)}" height="${fmt(totalH + pad * 2)}" rx="3" fill="${
+      )}" width="${fmt(wMax + pad * 2)}" height="${fmt(totalH + pad * 2)}" rx="3" fill="${escapeXML(
         label.background
-      }"${label.border ? ` stroke="${label.border}" stroke-width="1"` : ""}/>`;
+      )}"${label.border ? ` stroke="${escapeXML(label.border)}" stroke-width="1"` : ""}/>`;
     } else if (label.border) {
-      body += `<rect data-label-id="${label.id}" x="${fmt(cx - wMax / 2 - pad)}" y="${fmt(
+      body += `<rect data-label-id="${labelId}" x="${fmt(cx - wMax / 2 - pad)}" y="${fmt(
         cy - totalH / 2 - pad
-      )}" width="${fmt(wMax + pad * 2)}" height="${fmt(totalH + pad * 2)}" rx="3" fill="none" stroke="${
+      )}" width="${fmt(wMax + pad * 2)}" height="${fmt(totalH + pad * 2)}" rx="3" fill="none" stroke="${escapeXML(
         label.border
-      }" stroke-width="1"/>`;
+      )}" stroke-width="1"/>`;
     }
-    body += `<g data-label-id="${label.id}">${textSVG(
+    body += `<g data-label-id="${labelId}">${textSVG(
       label.text,
       { ...label.style, align: "center", valign: "middle" },
       { x: cx - wMax / 2, y: cy - totalH / 2, w: wMax, h: totalH },
@@ -155,7 +156,7 @@ export function connectorSVG(doc: FlowDoc, c: Connector, forExport = false): str
     )}</g>`;
   }
 
-  return `<g data-id="${c.id}" data-kind="connector" opacity="${c.opacity}"${
+  return `<g data-id="${escapeXML(c.id)}" data-kind="connector" opacity="${c.opacity}"${
     c.hidden ? ' style="opacity:0.25"' : ""
   }>${body}</g>`;
 }
@@ -235,7 +236,7 @@ export function exportSVG(
   if (!opts.transparent) {
     inner += `<rect x="${fmt(bounds.x)}" y="${fmt(bounds.y)}" width="${fmt(
       bounds.w
-    )}" height="${fmt(bounds.h)}" fill="${doc.canvas.background}"/>`;
+    )}" height="${fmt(bounds.h)}" fill="${escapeXML(doc.canvas.background)}"/>`;
   }
   if (opts.includeGrid) inner += gridSVG(doc, bounds);
   inner += docContentSVG(doc, true, opts.ids);

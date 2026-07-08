@@ -11,8 +11,17 @@ interface AutosavePayload {
   content: string;
 }
 
-export function startAutosave(editor: Editor): void {
+/**
+ * Autosave to localStorage every INTERVAL_MS while the document is dirty.
+ * This is best-effort recovery, not a substitute for saving — if it fails
+ * (e.g. a large diagram with embedded images exceeds the browser's storage
+ * quota), `onFailure` is called once so the caller can warn the user that
+ * crash recovery is unavailable until they save manually, rather than
+ * failing silently for the rest of the session.
+ */
+export function startAutosave(editor: Editor, onFailure?: (err: unknown) => void): void {
   let lastSaved = "";
+  let warned = false;
   const tick = () => {
     if (!editor.dirty) return;
     try {
@@ -25,8 +34,11 @@ export function startAutosave(editor: Editor): void {
       };
       localStorage.setItem(KEY, JSON.stringify(payload));
       lastSaved = content;
-    } catch {
-      // best-effort only
+    } catch (err) {
+      if (!warned) {
+        warned = true;
+        onFailure?.(err);
+      }
     }
   };
   setInterval(tick, INTERVAL_MS);

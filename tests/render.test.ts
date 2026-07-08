@@ -27,6 +27,55 @@ describe("SVG rendering", () => {
     expect(svg).toContain("&amp; more");
   });
 
+  it("escapes attribute-breaking payloads in fill/stroke/id even if they bypass the sanitizer", () => {
+    // Render-layer defense in depth: shapeSVG() must not trust that its
+    // caller already validated these fields (see src/model/serialization.ts
+    // for the sanitizer that normally prevents this input from occurring).
+    // A safe render neutralizes the payload into inert attribute text (the
+    // raw `"` becomes `&quot;`) rather than stripping it — so the assertion
+    // is "no unescaped quote reopens attribute context", not "the words are
+    // gone".
+    const s = newShape("process", 0, 0, 1);
+    const payload = 'red" onmouseover="alert(document.cookie)';
+    s.fill.color = payload;
+    s.stroke.color = payload;
+    s.id = 'sh_1" x="0';
+    const svg = shapeSVG(s);
+    expect(svg).not.toContain(payload);
+    expect(svg).not.toContain('sh_1" x="0');
+    expect(svg).toContain("red&quot; onmouseover=&quot;alert(document.cookie)");
+    expect(svg).toContain("sh_1&quot; x=&quot;0");
+  });
+
+  it("escapes attribute-breaking payloads in connector labels", () => {
+    const doc = newDoc();
+    const a = newShape("process", 0, 0, 1);
+    const b = newShape("process", 300, 0, 2);
+    doc.shapes.push(a, b);
+    const c = newConnector("straight", attachedEnd(a.id, "e"), attachedEnd(b.id, "w"), 3);
+    const label = newLabel('Yes" onclick="alert(1)');
+    label.background = 'white" onload="alert(1)';
+    c.labels.push(label);
+    doc.connectors.push(c);
+    const { svg } = exportSVG(doc, {});
+    expect(svg).not.toContain('white" onload="alert(1)');
+    expect(svg).toContain("white&quot; onload=&quot;alert(1)");
+  });
+
+  it("escapes attribute-breaking connector stroke colors and endpoint caps", () => {
+    const doc = newDoc();
+    const a = newShape("process", 0, 0, 1);
+    const b = newShape("process", 300, 0, 2);
+    doc.shapes.push(a, b);
+    const c = newConnector("straight", attachedEnd(a.id, "e"), attachedEnd(b.id, "w"), 3);
+    c.stroke.color = 'red" onmouseover="alert(1)';
+    c.endCap = "filled-arrow";
+    doc.connectors.push(c);
+    const { svg } = exportSVG(doc, {});
+    expect(svg).not.toContain('red" onmouseover="alert(1)');
+    expect(svg).toContain("red&quot; onmouseover=&quot;alert(1)");
+  });
+
   it("produces a standalone SVG document with correct bounds", () => {
     const doc = newDoc();
     const s = newShape("process", 100, 200, 1);

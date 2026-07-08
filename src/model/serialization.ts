@@ -1,6 +1,7 @@
 import type { Connector, FlowDoc, Shape } from "./types";
 import { defaultCanvas, defaultStroke, defaultTextStyle, newDoc } from "./defaults";
 import { SHAPE_DEFS } from "../shapes/registry";
+import { isSafeId, isSafeImageDataUrl, safeColor } from "../core/safety";
 
 export const SCHEMA_VERSION = 1;
 export const FILE_EXTENSION = "flowshark";
@@ -73,7 +74,7 @@ function validate(obj: Record<string, unknown>): FlowDoc {
   const base = newDoc();
   const doc: FlowDoc = {
     ...base,
-    id: str(obj.id, base.id),
+    id: isSafeId(obj.id) ? obj.id : base.id,
     title: str(obj.title, "Untitled flowchart"),
     createdAt: str(obj.createdAt, base.createdAt),
     modifiedAt: str(obj.modifiedAt, base.modifiedAt),
@@ -108,7 +109,7 @@ function validate(obj: Record<string, unknown>): FlowDoc {
   const allIds = new Set([...shapeIds, ...doc.connectors.map((c) => c.id)]);
   if (Array.isArray(obj.groups)) {
     for (const g of obj.groups) {
-      if (!isObj(g) || typeof g.id !== "string" || !Array.isArray(g.memberIds)) continue;
+      if (!isObj(g) || !isSafeId(g.id) || !Array.isArray(g.memberIds)) continue;
       const memberIds = g.memberIds.filter(
         (m: unknown): m is string => typeof m === "string" && allIds.has(m)
       );
@@ -134,7 +135,7 @@ function sanitizeCanvas(c: Record<string, any>) {
     snapToGrid: bool(c.snapToGrid, d.snapToGrid),
     snapToElement: bool(c.snapToElement, d.snapToElement),
     snapTolerance: Math.max(1, num(c.snapTolerance, d.snapTolerance)),
-    background: str(c.background, d.background),
+    background: safeColor(c.background, d.background),
   };
 }
 
@@ -147,7 +148,7 @@ function sanitizeTextStyle(t: unknown) {
     bold: bool(t.bold, d.bold),
     italic: bool(t.italic, d.italic),
     underline: bool(t.underline, d.underline),
-    color: str(t.color, d.color),
+    color: safeColor(t.color, d.color),
     align: (["left", "center", "right"] as const).includes(t.align) ? t.align : d.align,
     valign: (["top", "middle", "bottom"] as const).includes(t.valign) ? t.valign : d.valign,
     lineHeight: Math.max(0.5, num(t.lineHeight, d.lineHeight)),
@@ -158,14 +159,19 @@ function sanitizeStroke(s: unknown) {
   const d = defaultStroke();
   if (!isObj(s)) return d;
   return {
-    color: str(s.color, d.color),
+    color: safeColor(s.color, d.color),
     width: Math.max(0, num(s.width, d.width)),
     style: (["solid", "dashed", "dotted"] as const).includes(s.style) ? s.style : d.style,
   };
 }
 
+/** data: URLs pointing at a sanitization-safe raster image, or null. */
+function sanitizeImageSrc(v: unknown): string | null {
+  return isSafeImageDataUrl(v) ? v : null;
+}
+
 function sanitizeShape(s: Record<string, any>): Shape | null {
-  if (typeof s.id !== "string" || typeof s.type !== "string") return null;
+  if (!isSafeId(s.id) || typeof s.type !== "string") return null;
   if (!(s.type in SHAPE_DEFS)) return null;
   return {
     id: s.id,
@@ -177,7 +183,7 @@ function sanitizeShape(s: Record<string, any>): Shape | null {
     h: Math.max(1, num(s.h, 60)),
     rotation: num(s.rotation, 0),
     fill: isObj(s.fill)
-      ? { color: str(s.fill.color, "#ffffff"), opacity: Math.max(0, Math.min(1, num(s.fill.opacity, 1))) }
+      ? { color: safeColor(s.fill.color, "#ffffff"), opacity: Math.max(0, Math.min(1, num(s.fill.opacity, 1))) }
       : { color: "#ffffff", opacity: 1 },
     stroke: sanitizeStroke(s.stroke),
     cornerRadius: Math.max(0, num(s.cornerRadius, 0)),
@@ -187,8 +193,8 @@ function sanitizeShape(s: Record<string, any>): Shape | null {
     locked: bool(s.locked, false),
     hidden: bool(s.hidden, false),
     zIndex: num(s.zIndex, 0),
-    groupId: typeof s.groupId === "string" ? s.groupId : null,
-    imageSrc: typeof s.imageSrc === "string" && s.imageSrc.startsWith("data:image/") ? s.imageSrc : null,
+    groupId: isSafeId(s.groupId) ? s.groupId : null,
+    imageSrc: sanitizeImageSrc(s.imageSrc),
   };
 }
 
@@ -210,7 +216,7 @@ function sanitizeEnd(e: unknown, shapeIds: Set<string>) {
 }
 
 function sanitizeConnector(c: Record<string, any>, shapeIds: Set<string>): Connector | null {
-  if (typeof c.id !== "string") return null;
+  if (!isSafeId(c.id)) return null;
   return {
     id: c.id,
     kind: "connector",
@@ -228,20 +234,20 @@ function sanitizeConnector(c: Record<string, any>, shapeIds: Set<string>): Conne
     endCap: CAPS.has(c.endCap) ? c.endCap : "filled-arrow",
     labels: Array.isArray(c.labels)
       ? c.labels
-          .filter((l: unknown) => isObj(l) && typeof (l as any).id === "string")
+          .filter((l: unknown) => isObj(l) && isSafeId((l as any).id))
           .map((l: any) => ({
             id: l.id,
             text: str(l.text, ""),
             t: Math.max(0, Math.min(1, num(l.t, 0.5))),
             offset: num(l.offset, 0),
             style: sanitizeTextStyle(l.style),
-            background: typeof l.background === "string" ? l.background : null,
-            border: typeof l.border === "string" ? l.border : null,
+            background: typeof l.background === "string" ? safeColor(l.background, "#ffffff") : null,
+            border: typeof l.border === "string" ? safeColor(l.border, "#000000") : null,
           }))
       : [],
     locked: bool(c.locked, false),
     hidden: bool(c.hidden, false),
     zIndex: num(c.zIndex, 0),
-    groupId: typeof c.groupId === "string" ? c.groupId : null,
+    groupId: isSafeId(c.groupId) ? c.groupId : null,
   };
 }

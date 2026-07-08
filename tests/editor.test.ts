@@ -36,6 +36,39 @@ describe("undo/redo", () => {
     expect(ed.doc.shapes[0].type).toBe("decision");
   });
 
+  it("dirty is false after undoing back to the saved state", () => {
+    ed.apply("Add", (doc) => doc.shapes.push(newShape("process", 0, 0, 1)));
+    ed.markSaved();
+    expect(ed.dirty).toBe(false);
+    ed.apply("Move", (doc) => (doc.shapes[0].x = 50));
+    expect(ed.dirty).toBe(true);
+    ed.undo();
+    expect(ed.dirty).toBe(false); // back to exactly what's on disk
+  });
+
+  it("dirty stays true after undoing past a save and branching to a new edit", () => {
+    ed.apply("A", (doc) => doc.shapes.push(newShape("process", 0, 0, 1)));
+    ed.apply("B", (doc) => (doc.shapes[0].x = 10));
+    ed.markSaved(); // saved state = after A and B
+    ed.undo(); // back to just after A
+    ed.apply("C", (doc) => (doc.shapes[0].x = 99)); // new branch; B is now unreachable
+    expect(ed.dirty).toBe(true);
+    ed.undo(); // back to just after A again
+    expect(ed.dirty).toBe(true); // saved state (after B) no longer exists on this branch
+    ed.redo();
+    expect(ed.dirty).toBe(true); // redoing replays C, still not what was saved
+  });
+
+  it("redo back to the saved state clears dirty", () => {
+    ed.apply("A", (doc) => doc.shapes.push(newShape("process", 0, 0, 1)));
+    ed.markSaved();
+    ed.apply("B", (doc) => (doc.shapes[0].x = 10));
+    ed.undo();
+    expect(ed.dirty).toBe(false);
+    ed.redo();
+    expect(ed.dirty).toBe(true);
+  });
+
   it("cancel() restores the pre-drag state", () => {
     const s = addShape(ed, 10, 10);
     ed.begin("Move");
