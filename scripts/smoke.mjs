@@ -128,6 +128,23 @@ try {
   await download.saveAs(svgPath);
   ok(`SVG exported to ${svgPath}`);
 
+  // 10b. Export PDF (jsPDF + svg2pdf.js) and confirm a real PDF comes out
+  const pdfDownloadPromise = page.waitForEvent("download", { timeout: 15000 });
+  await page.click('#toolbar .menu-wrap:first-child button');
+  await page.click('.menu-item:has-text("Export PDF")');
+  const pdfDownload = await pdfDownloadPromise;
+  const pdfPath = `${OUT}/export.pdf`;
+  await pdfDownload.saveAs(pdfPath);
+  const { readFileSync, statSync } = await import("node:fs");
+  const pdfBytes = readFileSync(pdfPath);
+  const pdfHeaderOk = pdfBytes.subarray(0, 5).toString("ascii") === "%PDF-";
+  const pdfSizeOk = statSync(pdfPath).size > 500;
+  if (!pdfHeaderOk || !pdfSizeOk) {
+    fail(`PDF export produced an invalid file (header ok: ${pdfHeaderOk}, size: ${statSync(pdfPath).size}b)`);
+  } else {
+    ok(`PDF exported to ${pdfPath} (valid %PDF header, ${statSync(pdfPath).size}b)`);
+  }
+
   // 11. Screenshots, light and dark
   await page.mouse.click(950, 150);
   await page.screenshot({ path: `${OUT}/light.png` });

@@ -9,6 +9,15 @@ See [VERSIONING.md](VERSIONING.md) for how versions, releases, and the
 
 ## [Unreleased]
 
+### Security
+
+- Upgraded `jspdf` from ^3.0.1 to ^4.2.1 and `svg2pdf.js` from ^2.5.0 to
+  ^2.7.0, resolving a critical advisory affecting jsPDF ≤4.2.0 (path
+  traversal, PDF/JS injection, and DoS issues; see
+  [GHSA-f8cm-6447-x5h2](https://github.com/advisories/GHSA-f8cm-6447-x5h2)
+  and related advisories). Verified PDF export renders correctly against the
+  new major version via the Playwright smoke test.
+
 ## [0.1.0] - 2026-07-08
 
 Initial MVP implementation of the FlowShark flowchart editor per
