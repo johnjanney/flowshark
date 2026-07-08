@@ -66,6 +66,12 @@ Everything in the document model is plain JSON; rendering, model, UI, and
 export are separate modules (see `src/model`, `src/core`, `src/shapes`,
 `src/connectors`, `src/canvas`, `src/ui`, `src/io`).
 
+## Installing FlowShark (non-developers)
+
+If you just want to run FlowShark rather than work on its code, see
+**[INSTALLATION.md](INSTALLATION.md)** — a step-by-step guide that assumes
+no prior developer tools are installed, written for Windows on ARM.
+
 ## Getting started (development)
 
 Prerequisites: Node.js ≥ 20. For desktop builds: Rust (stable) and the
@@ -107,6 +113,7 @@ to a draft GitHub release.
 | File | Purpose |
 | --- | --- |
 | [PROJECTBRIEF.md](PROJECTBRIEF.md) | The original product brief (verbatim) + version-management appendix |
+| [INSTALLATION.md](INSTALLATION.md) | Step-by-step install guide, assuming no prerequisites |
 | [INSTRUCTIONS.md](INSTRUCTIONS.md) | User guide: how to use the application |
 | [CHANGELOG.md](CHANGELOG.md) | Version history (Keep a Changelog format) |
 | [OPENQUESTIONS.md](OPENQUESTIONS.md) | Open and resolved questions/decisions |

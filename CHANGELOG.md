@@ -9,6 +9,14 @@ See [VERSIONING.md](VERSIONING.md) for how versions, releases, and the
 
 ## [Unreleased]
 
+### Added
+
+- `INSTALLATION.md` — a step-by-step installation guide for Windows on ARM
+  that assumes no prerequisites are already installed (Git, Node.js, Rust,
+  and the Visual C++ Build Tools with the ARM64 target component), based on
+  the exact sequence needed on a real, fresh Windows on ARM machine.
+  Linked from README.md.
+
 ### Fixed
 
 - Overrode `rollup` to `@rollup/wasm-node` (the official WASM build) to work
