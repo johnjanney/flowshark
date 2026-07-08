@@ -9,6 +9,19 @@ See [VERSIONING.md](VERSIONING.md) for how versions, releases, and the
 
 ## [Unreleased]
 
+### Fixed
+
+- Overrode `rollup` to `@rollup/wasm-node` (the official WASM build) to work
+  around `@rollup/rollup-win32-arm64-msvc` failing to load on a Windows on
+  ARM development machine (`Error: ... is not a valid Win32 application`)
+  even after clean reinstalls with a correctly-sized downloaded binary —
+  consistent with the native binary being blocked/altered by endpoint
+  security software rather than a corrupted download. The WASM build sidesteps
+  native binary loading entirely and produces an identical build output
+  (verified via the full test suite and smoke test). See
+  [OPENQUESTIONS.md](OPENQUESTIONS.md) Q14 for when this override can be
+  revisited.
+
 ### Security
 
 - Upgraded `jspdf` from ^3.0.1 to ^4.2.1 and `svg2pdf.js` from ^2.5.0 to
