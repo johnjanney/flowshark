@@ -1,12 +1,12 @@
 # FlowShark 🦈
 
-**A fast, native-feeling flowchart application for Windows on ARM.**
+**A fast, native-feeling flowchart application for Windows on ARM and macOS.**
 
 FlowShark is a lightweight but comprehensive diagram editor for building
 professional flowcharts — business process maps, decision trees, system flows,
 swimlane diagrams, and more. It is optimized for Windows 11 on ARM (with x64
-builds from the same codebase) and runs in any modern browser during
-development.
+and macOS builds from the same codebase) and runs in any modern browser
+during development.
 
 ![FlowShark dark mode](docs/images/flowshark-dark.png)
 
@@ -55,7 +55,7 @@ export fidelity.
 
 | Layer | Technology |
 | --- | --- |
-| Desktop shell | [Tauri 2](https://tauri.app) + WebView2 (native ARM64 on Windows on ARM) |
+| Desktop shell | [Tauri 2](https://tauri.app) + WebView2 (native ARM64 on Windows on ARM) / WKWebView (macOS) |
 | UI / editor | TypeScript, no framework — direct DOM + SVG rendering engine |
 | Rendering | SVG scene graph; the same renderer drives the screen, SVG/PNG/PDF export |
 | PDF export | jsPDF + svg2pdf.js (lazy-loaded) |
@@ -70,7 +70,8 @@ export are separate modules (see `src/model`, `src/core`, `src/shapes`,
 
 If you just want to run FlowShark rather than work on its code, see
 **[INSTALLATION.md](INSTALLATION.md)** — a step-by-step guide that assumes
-no prior developer tools are installed, written for Windows on ARM.
+no prior developer tools are installed, written for Windows on ARM, with a
+dedicated section for macOS.
 
 ## Getting started (development)
 
@@ -103,10 +104,33 @@ The NSIS installer lands in
 `src-tauri/target/aarch64-pc-windows-msvc/release/bundle/nsis/`.
 For x64: substitute `x86_64-pc-windows-msvc`.
 
+## Building for macOS
+
+On a Mac (Apple Silicon or Intel) with Xcode Command Line Tools installed
+(`xcode-select --install`):
+
+```bash
+npm ci
+npx tauri build                 # native .app + .dmg for this Mac's architecture
+```
+
+For a universal binary (runs natively on both Apple Silicon and Intel):
+
+```bash
+rustup target add aarch64-apple-darwin x86_64-apple-darwin
+npx tauri build --target universal-apple-darwin
+```
+
+The `.app` bundle and `.dmg` disk image land in
+`src-tauri/target/[universal-apple-darwin/]release/bundle/{macos,dmg}/`.
+Builds are currently unsigned/un-notarized — see
+[INSTALLATION.md](INSTALLATION.md#installing-on-macos) for how to open an
+unsigned build past Gatekeeper.
+
 CI (`.github/workflows/ci.yml`) runs typecheck, unit tests, and the Chromium
-smoke test on every push/PR, and builds Windows ARM64 + x64 installers on
-pushes to `main`, tags, and manual dispatch. Tagging `v*` attaches installers
-to a draft GitHub release.
+smoke test on every push/PR, and builds Windows ARM64 + x64 installers plus a
+universal macOS disk image on pushes to `main`, tags, and manual dispatch.
+Tagging `v*` attaches the installers to a draft GitHub release.
 
 ## Project documents
 
@@ -128,7 +152,8 @@ to a draft GitHub release.
 - The `.flowshark` file format has its own integer **schema version** with
   forward migrations on load.
 - All notable changes go to **CHANGELOG.md** under `[Unreleased]` first.
-- Releases are cut by tagging `vX.Y.Z`; CI produces the Windows installers.
+- Releases are cut by tagging `vX.Y.Z`; CI produces the Windows installers
+  and the macOS disk image.
 
 Full details and step-by-step release instructions: [VERSIONING.md](VERSIONING.md).
 

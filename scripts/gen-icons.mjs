@@ -1,5 +1,5 @@
 /**
- * Generates the app icons (PNG + ICO) without any native dependencies.
+ * Generates the app icons (PNG + ICO + ICNS) without any native dependencies.
  * Draws the FlowShark mark — a white shark fin on a blue rounded square —
  * into a raw RGBA buffer and encodes it as PNG (zlib via node:zlib).
  *
@@ -189,9 +189,28 @@ function encodeICO(pngs) {
   return Buffer.concat([header, ...entries, ...blobs]);
 }
 
+/**
+ * ICNS container with PNG-encoded images (valid for macOS 10.7+).
+ * Each chunk is: 4-byte type, u32 BE length (including this 8-byte header),
+ * then the PNG bytes; the file itself is "icns" + u32 BE total length.
+ */
+function encodeICNS(entries) {
+  const chunks = entries.map(({ type, png }) => {
+    const header = Buffer.alloc(8);
+    header.write(type, 0, "ascii");
+    header.writeUInt32BE(8 + png.length, 4);
+    return Buffer.concat([header, png]);
+  });
+  const body = Buffer.concat(chunks);
+  const fileHeader = Buffer.alloc(8);
+  fileHeader.write("icns", 0, "ascii");
+  fileHeader.writeUInt32BE(8 + body.length, 4);
+  return Buffer.concat([fileHeader, body]);
+}
+
 // ---- emit ---------------------------------------------------------------------
 
-const sizes = [16, 32, 48, 128, 256, 512];
+const sizes = [16, 32, 48, 64, 128, 256, 512];
 const rendered = new Map();
 for (const s of sizes) {
   rendered.set(s, encodePNG(drawIcon(s)));
@@ -204,5 +223,20 @@ writeFileSync(join(OUT, "icon.png"), rendered.get(512));
 writeFileSync(
   join(OUT, "icon.ico"),
   encodeICO([16, 32, 48, 256].map((s) => ({ size: s, png: rendered.get(s) })))
+);
+writeFileSync(
+  join(OUT, "icon.icns"),
+  encodeICNS([
+    { type: "icp4", png: rendered.get(16) }, // 16x16
+    { type: "icp5", png: rendered.get(32) }, // 32x32
+    { type: "icp6", png: rendered.get(64) }, // 64x64
+    { type: "ic07", png: rendered.get(128) }, // 128x128
+    { type: "ic08", png: rendered.get(256) }, // 256x256
+    { type: "ic09", png: rendered.get(512) }, // 512x512
+    { type: "ic11", png: rendered.get(32) }, // 16x16@2x
+    { type: "ic12", png: rendered.get(64) }, // 32x32@2x
+    { type: "ic13", png: rendered.get(256) }, // 128x128@2x
+    { type: "ic14", png: rendered.get(512) }, // 256x256@2x
+  ])
 );
 console.log(`Icons written to ${OUT}/`);

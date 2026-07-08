@@ -9,6 +9,31 @@ See [VERSIONING.md](VERSIONING.md) for how versions, releases, and the
 
 ## [Unreleased]
 
+### Added
+
+- **macOS support.** FlowShark now builds and bundles as a native macOS app
+  (`.app` + `.dmg`, macOS 10.15+, Apple Silicon and Intel):
+  - macOS bundle targets and minimum-system-version configuration
+    (`src-tauri/tauri.macos.conf.json`, `src-tauri/tauri.conf.json`), and a
+    generated `icon.icns` app icon — `scripts/gen-icons.mjs` now emits ICNS
+    alongside PNG/ICO, still with no native dependencies.
+  - Mac-native conventions in the UI: menu and tooltip shortcut labels show
+    ⌘/⇧ symbols on macOS (redo advertised as ⇧⌘Z), and ⌘+click adds to the
+    selection like Ctrl+click does on Windows (`src/platform/os.ts`,
+    `src/ui/toolbar.ts`, `src/ui/statusbar.ts`, `src/canvas/interactions.ts`).
+    All Ctrl shortcuts already accepted Cmd.
+  - CI builds a universal (Apple Silicon + Intel) `.dmg` on pushes to
+    `main`, tags, and manual runs, and attaches it to draft releases
+    alongside the Windows installers; a macOS install/build guide was added
+    to INSTALLATION.md.
+
+### Fixed
+
+- Release workflow: the Windows installer glob pointed at the wrong path
+  inside the uploaded artifact (`nsis/*.exe` instead of `bundle/nsis/*.exe`),
+  so tagged releases would have been created without their installers
+  attached.
+
 ### Security
 
 - **High**: fixed unescaped attribute interpolation that let a crafted

@@ -1,8 +1,12 @@
 # FlowShark User Guide
 
-FlowShark is a flowchart editor for Windows (ARM64 and x64) that also runs in
-a modern browser. This guide covers everything you need to build, style, and
-export professional flowcharts.
+FlowShark is a flowchart editor for Windows (ARM64 and x64) and macOS that
+also runs in a modern browser. This guide covers everything you need to
+build, style, and export professional flowcharts.
+
+> **On a Mac?** Use **⌘ (Cmd)** wherever this guide says **Ctrl** — for
+> example ⌘S to save, ⌘Z to undo, ⇧⌘Z to redo — and **⌘+click** to add to
+> the selection. The app's menus show the Mac symbols automatically.
 
 ![FlowShark](docs/images/flowshark-light.png)
 
@@ -135,6 +139,8 @@ another selection.
 - Paste an image from the clipboard directly onto the canvas (**Ctrl+V**).
 
 ## 10. Keyboard shortcuts
+
+On macOS, substitute **⌘ (Cmd)** for **Ctrl** throughout (redo is ⇧⌘Z).
 
 | Shortcut | Action |
 | --- | --- |

@@ -3,6 +3,7 @@ import type { Interactions, Tool } from "../canvas/interactions";
 import type { Actions } from "./actions";
 import type { ConnectorType } from "../model/types";
 import { getRecentFiles, isTauri } from "../platform/fileio";
+import { shortcut, redoShortcut } from "../platform/os";
 import { CONNECTOR_TYPES } from "../connectors/routing";
 
 interface MenuItem {
@@ -145,9 +146,9 @@ export function buildToolbar(
   const fileMenu = menuButton("File", () => {
     const recents = getRecentFiles();
     const items: MenuItem[] = [
-      { label: "New", shortcut: "Ctrl+N", action: () => actions.newFile() },
+      { label: "New", shortcut: shortcut("Mod+N"), action: () => actions.newFile() },
       { label: "New from template…", action: () => actions.newFromTemplate() },
-      { label: "Open…", shortcut: "Ctrl+O", action: () => actions.open() },
+      { label: "Open…", shortcut: shortcut("Mod+O"), action: () => actions.open() },
     ];
     if (isTauri() && recents.length > 0) {
       items.push({ head: "Recent files" });
@@ -157,12 +158,12 @@ export function buildToolbar(
     }
     items.push(
       { sep: true },
-      { label: "Save", shortcut: "Ctrl+S", action: () => actions.save() },
-      { label: "Save As…", shortcut: "Ctrl+Shift+S", action: () => actions.saveAs() },
+      { label: "Save", shortcut: shortcut("Mod+S"), action: () => actions.save() },
+      { label: "Save As…", shortcut: shortcut("Mod+Shift+S"), action: () => actions.saveAs() },
       { sep: true },
       { label: "Import image…", action: () => actions.importImage() },
       { sep: true },
-      { label: "Export…", shortcut: "Ctrl+E", action: () => actions.showExportDialog() },
+      { label: "Export…", shortcut: shortcut("Mod+E"), action: () => actions.showExportDialog() },
       { label: "Export PNG", action: () => actions.quickExport("png") },
       { label: "Export SVG", action: () => actions.quickExport("svg") },
       { label: "Export PDF", action: () => actions.quickExport("pdf") },
@@ -174,28 +175,28 @@ export function buildToolbar(
   });
 
   const editMenu = menuButton("Edit", () => [
-    { label: "Undo", shortcut: "Ctrl+Z", action: () => { editor.undo(); actions.view.refresh(); }, disabled: !editor.canUndo() },
-    { label: "Redo", shortcut: "Ctrl+Y", action: () => { editor.redo(); actions.view.refresh(); }, disabled: !editor.canRedo() },
+    { label: "Undo", shortcut: shortcut("Mod+Z"), action: () => { editor.undo(); actions.view.refresh(); }, disabled: !editor.canUndo() },
+    { label: "Redo", shortcut: redoShortcut(), action: () => { editor.redo(); actions.view.refresh(); }, disabled: !editor.canRedo() },
     { sep: true },
-    { label: "Cut", shortcut: "Ctrl+X", action: () => { editor.cut(); actions.view.refresh(); } },
-    { label: "Copy", shortcut: "Ctrl+C", action: () => editor.copy() },
-    { label: "Paste", shortcut: "Ctrl+V", action: () => { editor.paste(); actions.view.refresh(); } },
-    { label: "Duplicate", shortcut: "Ctrl+D", action: () => { editor.duplicate(); actions.view.refresh(); } },
+    { label: "Cut", shortcut: shortcut("Mod+X"), action: () => { editor.cut(); actions.view.refresh(); } },
+    { label: "Copy", shortcut: shortcut("Mod+C"), action: () => editor.copy() },
+    { label: "Paste", shortcut: shortcut("Mod+V"), action: () => { editor.paste(); actions.view.refresh(); } },
+    { label: "Duplicate", shortcut: shortcut("Mod+D"), action: () => { editor.duplicate(); actions.view.refresh(); } },
     { label: "Delete", shortcut: "Del", action: () => { editor.deleteSelection(); actions.view.refresh(); } },
     { sep: true },
-    { label: "Copy style", shortcut: "Ctrl+Shift+C", action: () => editor.copyStyle() },
-    { label: "Paste style", shortcut: "Ctrl+Shift+V", action: () => { editor.pasteStyle(); actions.view.refresh(); } },
+    { label: "Copy style", shortcut: shortcut("Mod+Shift+C"), action: () => editor.copyStyle() },
+    { label: "Paste style", shortcut: shortcut("Mod+Shift+V"), action: () => { editor.pasteStyle(); actions.view.refresh(); } },
     { sep: true },
-    { label: "Select all", shortcut: "Ctrl+A", action: () => editor.selectAll() },
+    { label: "Select all", shortcut: shortcut("Mod+A"), action: () => editor.selectAll() },
     { label: "Deselect", shortcut: "Esc", action: () => editor.deselect() },
   ]);
 
   const viewMenu = menuButton("View", () => [
-    { label: "Zoom in", shortcut: "Ctrl++", action: () => actions.zoomIn() },
-    { label: "Zoom out", shortcut: "Ctrl+-", action: () => actions.zoomOut() },
-    { label: "Zoom 100%", shortcut: "Ctrl+1", action: () => actions.zoomReset() },
-    { label: "Fit to screen", shortcut: "Ctrl+0", action: () => actions.fitToContent() },
-    { label: "Fit selection", shortcut: "Ctrl+2", action: () => actions.fitSelection() },
+    { label: "Zoom in", shortcut: shortcut("Mod++"), action: () => actions.zoomIn() },
+    { label: "Zoom out", shortcut: shortcut("Mod+-"), action: () => actions.zoomOut() },
+    { label: "Zoom 100%", shortcut: shortcut("Mod+1"), action: () => actions.zoomReset() },
+    { label: "Fit to screen", shortcut: shortcut("Mod+0"), action: () => actions.fitToContent() },
+    { label: "Fit selection", shortcut: shortcut("Mod+2"), action: () => actions.fitSelection() },
     { sep: true },
     { label: `${editor.doc.canvas.gridVisible ? "Hide" : "Show"} grid`, action: () => actions.toggleGrid() },
     { label: `Snap to grid: ${editor.doc.canvas.snapToGrid ? "on" : "off"}`, action: () => actions.toggleSnapGrid() },
@@ -255,17 +256,17 @@ export function buildToolbar(
   connWrap.appendChild(connBtn);
 
   // ---- history ----
-  const undoBtn = cmdBtn("Undo (Ctrl+Z)", ICONS.undo, () => {
+  const undoBtn = cmdBtn(`Undo (${shortcut("Mod+Z")})`, ICONS.undo, () => {
     editor.undo();
     actions.view.refresh();
   });
-  const redoBtn = cmdBtn("Redo (Ctrl+Y)", ICONS.redo, () => {
+  const redoBtn = cmdBtn(`Redo (${redoShortcut()})`, ICONS.redo, () => {
     editor.redo();
     actions.view.refresh();
   });
 
   // ---- snapping toggles ----
-  const gridBtn = cmdBtn("Toggle grid (Ctrl+')", ICONS.grid, () => actions.toggleGrid());
+  const gridBtn = cmdBtn(`Toggle grid (${shortcut("Mod+'")})`, ICONS.grid, () => actions.toggleGrid());
   const snapGridBtn = cmdBtn("Snap to grid", ICONS.magnet, () => actions.toggleSnapGrid());
   const snapElBtn = cmdBtn("Snap to elements", ICONS.snapEl, () => actions.toggleSnapElement());
 
@@ -288,17 +289,17 @@ export function buildToolbar(
   ]);
 
   const orderMenu = menuButton("Order", () => [
-    { label: "Bring to front", shortcut: "Ctrl+Shift+]", action: () => { editor.order("front"); actions.view.refresh(); } },
-    { label: "Bring forward", shortcut: "Ctrl+]", action: () => { editor.order("forward"); actions.view.refresh(); } },
-    { label: "Send backward", shortcut: "Ctrl+[", action: () => { editor.order("backward"); actions.view.refresh(); } },
-    { label: "Send to back", shortcut: "Ctrl+Shift+[", action: () => { editor.order("back"); actions.view.refresh(); } },
+    { label: "Bring to front", shortcut: shortcut("Mod+Shift+]"), action: () => { editor.order("front"); actions.view.refresh(); } },
+    { label: "Bring forward", shortcut: shortcut("Mod+]"), action: () => { editor.order("forward"); actions.view.refresh(); } },
+    { label: "Send backward", shortcut: shortcut("Mod+["), action: () => { editor.order("backward"); actions.view.refresh(); } },
+    { label: "Send to back", shortcut: shortcut("Mod+Shift+["), action: () => { editor.order("back"); actions.view.refresh(); } },
   ]);
 
-  const groupBtn = cmdBtn("Group (Ctrl+G)", ICONS.group, () => {
+  const groupBtn = cmdBtn(`Group (${shortcut("Mod+G")})`, ICONS.group, () => {
     editor.group();
     actions.view.refresh();
   });
-  const ungroupBtn = cmdBtn("Ungroup (Ctrl+Shift+G)", ICONS.ungroup, () => {
+  const ungroupBtn = cmdBtn(`Ungroup (${shortcut("Mod+Shift+G")})`, ICONS.ungroup, () => {
     editor.ungroup();
     actions.view.refresh();
   });
@@ -309,8 +310,8 @@ export function buildToolbar(
     actions.view.refresh();
   });
 
-  const fitBtn = cmdBtn("Fit to screen (Ctrl+0)", ICONS.fit, () => actions.fitToContent());
-  const exportBtn = cmdBtn("Export (Ctrl+E)", ICONS.export, () => actions.showExportDialog());
+  const fitBtn = cmdBtn(`Fit to screen (${shortcut("Mod+0")})`, ICONS.fit, () => actions.fitToContent());
+  const exportBtn = cmdBtn(`Export (${shortcut("Mod+E")})`, ICONS.export, () => actions.showExportDialog());
   const themeBtn = cmdBtn("Toggle dark mode", ICONS.theme, toggleTheme);
 
   const spacer = document.createElement("div");

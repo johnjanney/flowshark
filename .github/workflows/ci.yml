@@ -73,10 +73,45 @@ jobs:
             src-tauri/target/${{ matrix.target }}/release/flowshark.exe
           if-no-files-found: error
 
+  build-macos:
+    name: Build macOS (universal)
+    # Only build installers for tags, manual runs, and pushes to main
+    if: github.event_name != 'pull_request'
+    needs: test
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: npm ci
+      - name: Build Tauri app (universal binary)
+        run: npx tauri build --target universal-apple-darwin
+      - name: Compress .app bundle
+        # Zip preserves the executable bits and symlinks that upload-artifact
+        # would strip from a bare .app directory.
+        run: |
+          cd src-tauri/target/universal-apple-darwin/release/bundle/macos
+          ditto -c -k --keepParent FlowShark.app FlowShark-macos-universal.app.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FlowShark-macos-universal
+          path: |
+            src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+            src-tauri/target/universal-apple-darwin/release/bundle/macos/FlowShark-macos-universal.app.zip
+          if-no-files-found: error
+
   release:
     name: Attach installers to release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: build-windows
+    needs: [build-windows, build-macos]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -89,5 +124,7 @@ jobs:
         with:
           draft: true
           files: |
-            artifacts/FlowShark-windows-arm64/nsis/*.exe
-            artifacts/FlowShark-windows-x64/nsis/*.exe
+            artifacts/FlowShark-windows-arm64/bundle/nsis/*.exe
+            artifacts/FlowShark-windows-x64/bundle/nsis/*.exe
+            artifacts/FlowShark-macos-universal/dmg/*.dmg
+            artifacts/FlowShark-macos-universal/macos/FlowShark-macos-universal.app.zip

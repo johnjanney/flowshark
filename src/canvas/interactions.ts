@@ -221,7 +221,7 @@ export class Interactions {
     const ed = this.editor;
     const docPt = this.view.clientToDoc(e.clientX, e.clientY);
     const hit = this.hitInfo(e);
-    const additive = e.shiftKey || e.ctrlKey;
+    const additive = e.shiftKey || e.ctrlKey || e.metaKey;
 
     // Pan: middle button, space, or pan tool
     if (e.button === 1 || this.spaceDown || this.tool === "pan") {

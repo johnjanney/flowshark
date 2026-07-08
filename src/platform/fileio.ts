@@ -1,7 +1,7 @@
 /**
  * File I/O abstraction. Uses Tauri dialogs + fs when running inside the
- * Tauri shell (Windows ARM / x64 desktop builds); falls back to the File
- * System Access API or plain downloads when running in a browser.
+ * Tauri shell (Windows ARM / x64 and macOS desktop builds); falls back to
+ * the File System Access API or plain downloads when running in a browser.
  */
 
 export function isTauri(): boolean {

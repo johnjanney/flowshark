@@ -10,6 +10,9 @@ experience with developer tools to follow it.
 > component (x64 machines get everything they need automatically), and use
 > the regular Rust installer link instead of the ARM64-specific one noted in
 > Part 5.
+>
+> **On a Mac?** Skip this whole Windows walkthrough and jump straight to
+> **[Installing on macOS](#installing-on-macos)** at the end of this guide.
 
 **Time required:** 30–60 minutes, mostly unattended downloading/installing.
 
@@ -348,3 +351,90 @@ your existing installation.
 
 Your saved `.flowshark` diagram files are not deleted by this — they're
 just regular files wherever you saved them.
+
+---
+
+## Installing on macOS
+
+FlowShark runs natively on macOS 10.15 (Catalina) or newer, on both Apple
+Silicon (M-series) and Intel Macs.
+
+### Option A — Download a release (when available)
+
+1. Open the project's **Releases** page on GitHub and download the
+   `.dmg` file from the latest release.
+2. Double-click the `.dmg` and drag **FlowShark** into the **Applications**
+   folder shortcut.
+3. FlowShark builds are not yet signed or notarized with Apple, so the
+   first launch needs one extra step: **right-click (or Ctrl+click)
+   FlowShark in Applications and choose "Open"**, then click **Open** in
+   the dialog that appears. (On macOS 15 Sequoia or newer, if there is no
+   Open button: open **System Settings → Privacy & Security**, scroll down,
+   and click **Open Anyway** next to the FlowShark message, then launch it
+   again.) This is only needed once — afterwards it opens normally.
+
+### Option B — Build from source
+
+Everything is typed into the **Terminal** app (Applications → Utilities →
+Terminal, or press ⌘+Space and type `Terminal`).
+
+1. **Install the Xcode Command Line Tools** (compiler + Git):
+
+   ```bash
+   xcode-select --install
+   ```
+
+   Click **Install** in the dialog that appears and wait for it to finish.
+   (If it says the tools are already installed, that's fine.)
+
+2. **Install Node.js.** Download and run the macOS installer ("LTS"
+   version) from <https://nodejs.org>, or if you use Homebrew:
+   `brew install node`.
+
+3. **Install Rust:**
+
+   ```bash
+   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+   ```
+
+   Press Enter to accept the default installation, then close and reopen
+   Terminal (or run `source "$HOME/.cargo/env"`).
+
+4. **Download and build FlowShark:**
+
+   ```bash
+   git clone https://github.com/johnjanney/flowshark.git
+   cd flowshark
+   npm ci
+   npx tauri build
+   ```
+
+   The first build takes 10–20 minutes while Rust compiles everything;
+   later builds are much faster.
+
+5. **Install it.** The build produces both an app bundle and a disk image
+   in `src-tauri/target/release/bundle/`:
+
+   ```bash
+   open src-tauri/target/release/bundle/dmg
+   ```
+
+   Double-click the `.dmg` and drag **FlowShark** to **Applications**.
+   Because your local build is unsigned, launch it the first time with
+   right-click → **Open** as described in Option A step 3.
+
+### Updating on macOS
+
+```bash
+cd flowshark
+git pull
+npm ci
+npx tauri build
+```
+
+Then reinstall from the new `.dmg` as above.
+
+### Uninstalling on macOS
+
+Drag **FlowShark** from the Applications folder to the Trash. Your saved
+`.flowshark` files are regular documents and are not affected.

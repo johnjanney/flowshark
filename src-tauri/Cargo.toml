@@ -1,7 +1,7 @@
 [package]
 name = "flowshark"
 version = "0.1.0"
-description = "A fast, native-feeling flowchart application for Windows on ARM"
+description = "A fast, native-feeling flowchart application for Windows on ARM and macOS"
 authors = ["FlowShark contributors"]
 edition = "2021"
 rust-version = "1.77"

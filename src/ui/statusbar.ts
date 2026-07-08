@@ -2,6 +2,7 @@ import type { Editor } from "../core/editor";
 import type { CanvasView } from "../canvas/view";
 import type { Point } from "../model/types";
 import type { Actions } from "./actions";
+import { shortcut } from "../platform/os";
 
 export function buildStatusBar(
   container: HTMLElement,
@@ -28,7 +29,7 @@ export function buildStatusBar(
   const zoomOut = document.createElement("button");
   zoomOut.className = "tb-btn";
   zoomOut.textContent = "−";
-  zoomOut.title = "Zoom out (Ctrl+-)";
+  zoomOut.title = `Zoom out (${shortcut("Mod+-")})`;
   zoomOut.setAttribute("aria-label", "Zoom out");
   zoomOut.addEventListener("click", () => actions.zoomOut());
 
@@ -41,14 +42,14 @@ export function buildStatusBar(
   const zoomIn = document.createElement("button");
   zoomIn.className = "tb-btn";
   zoomIn.textContent = "+";
-  zoomIn.title = "Zoom in (Ctrl++)";
+  zoomIn.title = `Zoom in (${shortcut("Mod++")})`;
   zoomIn.setAttribute("aria-label", "Zoom in");
   zoomIn.addEventListener("click", () => actions.zoomIn());
 
   const fit = document.createElement("button");
   fit.className = "tb-btn";
   fit.textContent = "Fit";
-  fit.title = "Fit diagram to screen (Ctrl+0)";
+  fit.title = `Fit diagram to screen (${shortcut("Mod+0")})`;
   fit.addEventListener("click", () => actions.fitToContent());
 
   container.append(coords, selInfo, hint, dirtyFlag, zoomOut, zoomPct, zoomIn, fit);
