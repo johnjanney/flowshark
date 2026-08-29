@@ -179,6 +179,80 @@ try {
   await page.screenshot({ path: `${OUT}/template.png` });
   ok("template loads");
 
+  // 13. Canvas settings are undoable and mark the document dirty
+  //     (regression: they used to mutate the document outside the command
+  //     system, so they were silently lost on New/Open with no warning).
+  await page.keyboard.press("Control+z"); // clear any pending state
+  const dirtyBefore = await page.locator("#statusbar").innerText();
+  await page.click('#toolbar button[aria-label^="Toggle grid"]');
+  const dirtyAfter = await page.locator("#statusbar").innerText();
+  if (!dirtyAfter.includes("Unsaved changes")) {
+    fail(`toggling the grid did not mark the document dirty (status: "${dirtyAfter.trim()}")`);
+  } else {
+    ok("canvas settings mark the document dirty");
+  }
+  const gridBefore = await page.locator("#canvas-svg g").first().innerHTML();
+  await page.keyboard.press("Control+z");
+  const gridAfter = await page.locator("#canvas-svg g").first().innerHTML();
+  if (gridBefore === gridAfter) fail("undo did not revert the grid toggle");
+  else ok("canvas settings are undoable");
+  void dirtyBefore;
+
+  // 14. Escape dismisses a confirmation dialog and settles its promise
+  //     (regression: Escape left the promise pending forever, so the command
+  //     that opened it silently did nothing and could never be retried).
+  await page.click("#canvas-svg");
+  await page.mouse.dblclick(500, 400); // make the document dirty again
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Control+n");
+  await page.waitForSelector('.dialog button:has-text("Continue")');
+  await page.keyboard.press("Escape");
+  await page.waitForSelector(".dialog", { state: "detached", timeout: 3000 });
+  await page.keyboard.press("Control+n");
+  const reprompted = await page
+    .waitForSelector('.dialog button:has-text("Continue")', { timeout: 3000 })
+    .then(() => true)
+    .catch(() => false);
+  if (!reprompted) fail("dismissing the unsaved-changes dialog left the command wedged");
+  else ok("Escape dismisses the confirmation and the command can be retried");
+  await page.keyboard.press("Escape");
+  await page.waitForSelector(".dialog", { state: "detached", timeout: 3000 }).catch(() => {});
+
+  // 15. Keyboard-only traversal of diagram objects
+  await page.click('#toolbar .menu-wrap:first-child button');
+  await page.click('.menu-item:has-text("New from template")');
+  const discard2 = page.locator('.dialog button:has-text("Continue")');
+  if (await discard2.count()) await discard2.click();
+  await page.waitForSelector(".template-card");
+  await page.click('.template-card:has-text("Basic flowchart")');
+  await page.waitForSelector('#canvas-svg g[data-kind="shape"]');
+  await page.locator("#canvas-svg").focus();
+  await page.keyboard.press("Tab");
+  const announced = await page.locator("#canvas-host [aria-live]").innerText();
+  if (!announced.trim()) fail("Tab on the canvas announced nothing to assistive tech");
+  else ok(`keyboard traversal announces objects ("${announced.trim().slice(0, 48)}")`);
+  const selectedAfterTab = await page.locator("#statusbar").innerText();
+  if (!selectedAfterTab.includes("1 selected")) {
+    fail(`Tab on the canvas did not select an object (status: "${selectedAfterTab.trim()}")`);
+  } else {
+    ok("Tab selects a diagram object");
+  }
+
+  // 15b. Tab past the last object must let focus leave the canvas — a canvas
+  //      that swallows every Tab is a keyboard trap (WCAG 2.1.2).
+  const objectCount = await page
+    .locator('#canvas-svg g[data-kind="shape"], #canvas-svg g[data-kind="connector"]')
+    .count();
+  for (let i = 0; i < objectCount + 1; i++) await page.keyboard.press("Tab");
+  const stillOnCanvas = await page.evaluate(
+    () => document.activeElement?.id === "canvas-svg"
+  );
+  if (stillOnCanvas) {
+    fail(`focus is trapped on the canvas after tabbing past all ${objectCount} objects`);
+  } else {
+    ok("Tab past the last object releases focus from the canvas");
+  }
+
   const errFatal = errors.filter(
     (e) => !e.includes("favicon") && !e.includes("Autofill")
   );

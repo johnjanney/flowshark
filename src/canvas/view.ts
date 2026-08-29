@@ -33,6 +33,8 @@ export class CanvasView {
   contentLayer: SVGGElement;
   overlayLayer: SVGGElement;
   host: HTMLElement;
+  /** polite live region used to announce selection to screen readers */
+  liveRegion: HTMLElement;
 
   /** transient state written by interactions, read by refreshOverlay */
   guides: Guide[] = [];
@@ -46,8 +48,16 @@ export class CanvasView {
     this.svg = document.createElementNS(SVGNS, "svg");
     this.svg.id = "canvas-svg";
     this.svg.setAttribute("tabindex", "0");
-    this.svg.setAttribute("role", "img");
-    this.svg.setAttribute("aria-label", "Flowchart canvas");
+    // "application" rather than "img": the canvas is an interactive editing
+    // surface with its own key bindings, not a static picture. The label
+    // states the traversal keys because the SVG scene graph itself is not a
+    // meaningful accessibility tree — selection is announced through the
+    // live region below instead.
+    this.svg.setAttribute("role", "application");
+    this.svg.setAttribute(
+      "aria-label",
+      "Flowchart canvas. Press Tab or Shift+Tab to move through the diagram's objects, Enter to edit the selected object's text, arrow keys to move it, and Escape to deselect. Tab past the last object to leave the canvas."
+    );
     this.root = document.createElementNS(SVGNS, "g");
     this.gridLayer = document.createElementNS(SVGNS, "g");
     this.contentLayer = document.createElementNS(SVGNS, "g");
@@ -55,7 +65,19 @@ export class CanvasView {
     this.root.append(this.gridLayer, this.contentLayer, this.overlayLayer);
     this.svg.appendChild(this.root);
     host.appendChild(this.svg);
+    this.liveRegion = document.createElement("div");
+    this.liveRegion.className = "sr-only";
+    this.liveRegion.setAttribute("aria-live", "polite");
+    this.liveRegion.setAttribute("aria-atomic", "true");
+    host.appendChild(this.liveRegion);
     new ResizeObserver(() => this.refresh()).observe(host);
+  }
+
+  /** Announce a change (selection, mode) to assistive technology. */
+  announce(message: string): void {
+    // Re-setting identical text does not re-announce, so clear first.
+    this.liveRegion.textContent = "";
+    this.liveRegion.textContent = message;
   }
 
   // ----- coordinates -------------------------------------------------------

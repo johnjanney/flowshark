@@ -1,5 +1,489 @@
 # Response to CODEX-REVIEW.md
 
+This document records each round of independent review of FlowShark, the
+verification of every finding against the actual code, and what was fixed.
+The current round is first; the earlier rounds follow in the order they were
+written.
+
+- [Round 3 — the 2026-08-29 review](#round-3--response-to-the-2026-08-29-codex-review) (current)
+- [Round 1 — the 2026-07-07 review](#round-1--response-to-the-2026-07-07-codex-review)
+- [Round 2 — second pass over the 2026-07-07 review](#addendum-second-pass-over-codex-reviewmd)
+
+---
+
+# Round 3 — response to the 2026-08-29 Codex review
+
+Response date: 2026-08-29
+Reviewed by: Claude (Opus 5)
+
+This round covers the rewritten [CODEX-REVIEW.md](CODEX-REVIEW.md) dated
+2026-08-29 (High 1 – Low 10). Every finding was verified against the code
+before being acted on, and an independent review of the repository was run
+alongside it across the seventeen dimensions requested (requirements
+compliance, correctness, code quality, architecture, performance, security,
+reliability, error handling, data integrity, privacy, accessibility,
+compatibility, test coverage, documentation accuracy, dependency risk,
+maintainability, project-brief drift). That independent pass found eight
+issues Codex did not report, two of which are more user-visible than
+anything in Codex's list.
+
+## Verdict on Codex's findings
+
+| # | Finding | Verdict | Outcome |
+| --- | --- | --- | --- |
+| High 1 | Canvas settings bypass the command system | **Confirmed** | **Fixed** |
+| High 2 | Untrusted documents unbounded against resource exhaustion | **Confirmed**, with three concrete amplifiers Codex did not name | **Fixed** |
+| Medium 3 | Recent files unreliable outside Documents after restart | **Confirmed** | **Fixed** (detect + re-authorize); durable scope tracked as Q21 |
+| Medium 4 | 500-element / ARM performance unproven | **Confirmed** as a verification gap | **Half-fixed**: benchmark added, x64 baseline measured, one real optimization; ARM run still open (Q16) |
+| Medium 5 | Accessibility partial and unvalidated | **Confirmed**; found *worse* than described in one respect | **Substantially fixed**; audit still open (Q17) |
+| Medium 6 | Release provenance unresolved | **Confirmed** | **Partially fixed**; SHA pinning blocked in this environment (Q20) |
+| Low 7 | Coverage thin at system boundaries | **Confirmed** | **Partially fixed**: 32 new tests + 5 new smoke checks |
+| Low 8 | "Complete MVP" wording conflicts with known gaps | **Confirmed** | **Fixed** (wording + REQUIREMENTS.md) |
+| Low 9 | Validation permits ambiguous relationship data | **Confirmed**, and one part understated | **Fixed** |
+| Low 10 | Browser fallback less capable than desktop | **Confirmed** | **Fixed** (honest labelling + documented matrix) |
+
+Nothing in the review was a false positive. Two findings were more serious
+than stated (High 2 and Low 9); one was less severe in practice than it
+reads (Low 9's connector-anchor concern — the router already falls back
+safely — though it was still worth closing).
+
+## New findings from the independent review
+
+| # | Finding | Severity | Outcome |
+| --- | --- | --- | --- |
+| N1 | Dismissing a confirmation dialog wedges the command that opened it | **High** | Fixed |
+| N2 | Recovered unsaved work can be silently re-marked as saved | **High** | Fixed |
+| N3 | CI attaches no installers to a tagged release, silently | Medium | Fixed |
+| N4 | Grid generation is unbounded on export | Medium | Fixed |
+| N5 | `wrapText` hard-break is O(n²) in text length | Medium | Fixed |
+| N6 | A `localStorage` failure turns a successful save into "Save failed" | Low–Medium | Fixed |
+| N7 | Recent-file entries are read back without validation | Low | Fixed |
+| N8 | The canvas has no visible focus indicator | Low | Fixed |
+
+## Priority order used
+
+1. Silent data loss and wedged commands (High 1, N1, N2, N6) — these lose or
+   block a user's work with no error.
+2. Resource exhaustion from untrusted files (High 2, Low 9, N4, N5).
+3. Reliability and release correctness (Medium 3, N3, N7).
+4. Accessibility (Medium 5, N8) — required by brief §8.14, and cheap to move
+   from "labels exist" to "usable without a mouse".
+5. Measurement and evidence (Medium 4, Low 7, Low 8).
+6. Provenance (Medium 6) — the part that could be done here was done; the
+   rest is blocked and tracked.
+
+---
+
+## High 1 — Canvas settings could be lost silently and could not be undone
+
+**Verified.** Confirmed at six call sites, not the two the review implies:
+`src/ui/inspector.ts` mutated `doc.canvas.gridSize`, `.gridVisible`,
+`.snapToGrid`, `.snapToElement`, `.snapTolerance` and `.background` directly
+and then called `editor.notify()`; `Actions.toggleGrid`, `toggleSnapGrid` and
+`toggleSnapElement` did the same. None called `Editor.apply()`.
+
+The consequence chain is exactly as described, and worth spelling out because
+it compounds: no `begin()`/`commit()` means no undo snapshot **and** no
+`recomputeDirty()`, so `dirty` stayed false; `startAutosave`'s tick returns
+early when `!editor.dirty`, so the change was never autosaved either; and
+`Actions.confirmDiscard()` returns `true` immediately when `!dirty`, so
+New/Open discarded the change with no prompt. A user could set a diagram
+background, open another file, and lose it with no warning and no recovery
+copy.
+
+**Fixed** by adding `Editor.setCanvas(patch, label)` — a real command that
+routes through `apply()`, so the edit is undoable, dirty-marking,
+autosave-eligible and guarded by the discard confirmation. It ignores no-op
+patches so toggling a value back and forth doesn't push empty undo steps.
+All six call sites now use it, and the inspector clamps its numeric inputs
+through the same helpers the file parser uses, so a typed value and a loaded
+value are bounded identically.
+
+**Regression coverage:** five unit tests in `tests/editor.test.ts` (dirty,
+undo, redo, clean-on-undo-back-to-saved, no-op ignored) and two smoke checks
+that toggle the grid in the real UI and assert the status bar shows "Unsaved
+changes" and that Ctrl+Z reverts it.
+
+## High 2 — Untrusted documents were not bounded against resource exhaustion
+
+**Verified, and worse than described.** `parseDoc()` checked numbers with
+`Number.isFinite` and applied a few one-sided floors (`Math.max(2, gridSize)`,
+`Math.max(1, w)`) but had no upper bounds and no count limits anywhere. Three
+specific amplifiers make this more than a memory-pressure concern:
+
+1. **`gridSVG()` loops over `area.w / gridSize` segments.** `area` for an
+   export comes from content bounds. A single shape at `x = 1e15` with
+   "include grid" ticked produces a loop of ~10¹⁴ iterations — a hard hang,
+   not a slow render. The review's phrasing ("enormous DOM/SVG output")
+   understates this: it never gets as far as producing output.
+2. **`wrapText()`'s hard-break path was O(n²) in text length** (it walked the
+   cut point back one character at a time, re-measuring each step). With
+   unbounded `text`, a single long unbroken run is a hang.
+3. **`rasterize()` set `canvas.width/height` with no cap.** Over the browser's
+   canvas limit, allocation fails *without throwing* — `toBlob` yields null
+   and the user sees "Export failed" with no explanation, or a blank image.
+
+**Fixed** with a new `src/model/limits.ts` holding every bound in one
+documented place, wired into the parser, the renderer and the export path:
+
+- Files over 32 MB are refused **before** `JSON.parse` with a `DocumentError`
+  that says so (previously a huge file was parsed in full, then validated).
+- Counts capped: shapes, connectors, groups, group members, bend points per
+  connector, labels per connector.
+- Values clamped: coordinates (±10⁷), dimensions, rotation (normalized into
+  ±360°), font size, line height, stroke width, corner radius, text padding,
+  label offset, z-index, grid size, snap tolerance.
+- Strings truncated: shape/label text, document title, font-family.
+- `gridSVG` widens its step until the line count fits the cap, so a hostile
+  document degrades to a coarser grid instead of hanging.
+- `rasterDimensions()` refuses exports above 80 MP or 20,000 px per side and
+  throws `ExportSizeError` with a message naming the limit and suggesting a
+  smaller selection or scale.
+- `wrapText` binary-searches the break point instead of walking back.
+
+The ceilings are far above any real diagram — 20,000 elements is well past
+the point the editor is usable (see the benchmark: a 2,000-element drag frame
+is already 77 ms). They exist to convert "the app hangs" into "the app opens a
+repaired document, or refuses the file with a clear message".
+
+**Regression coverage:** 12 adversarial tests in `tests/limits.test.ts`,
+including a normal-document round-trip to prove the limits don't distort
+ordinary files.
+
+## Medium 3 — Recent files outside Documents
+
+**Verified.** `src-tauri/capabilities/default.json` scopes `fs:scope` to
+`$DOCUMENT/**`; `openRecentFile()` calls `readTextFile(path)` with no dialog,
+so it depends on the session-only runtime grant an open dialog confers. After
+a relaunch that grant is gone and the read is rejected. `Actions.openRecent`
+caught the error but surfaced it as `Could not open file: ${err}` — a raw
+Tauri permission string.
+
+**Fixed** at the interaction level rather than by widening the scope (which
+would hand the renderer standing access to more of the disk — a worse trade
+for a convenience feature). On failure FlowShark now explains what happened
+and offers to reopen the file through the dialog, which restores access; if
+the user declines, the stale entry is removed. `openRecentFile` carries a
+comment stating the constraint so the next reader doesn't rediscover it.
+Documented in README ("Recent files") and INSTRUCTIONS §8.
+
+**Not fixed:** durable scopes/bookmarks that survive a restart. That needs a
+persisted-scope API from Tauri's fs plugin; tracked as **Q21**.
+
+## Medium 4 — The 500-element performance target
+
+**Verified as a verification gap**, and the architectural description is
+accurate: `refreshContent()` rebuilds the whole SVG through `innerHTML`, and
+each drag frame calls `restorePendingPreview()`, which `structuredClone`s the
+entire document.
+
+**Half-fixed.** Two things were possible here; ARM hardware was not.
+
+*Measurement.* `scripts/bench.mjs` is new: it generates 100/500/2,000-element
+fixtures and times parse, routing, SVG build, DOM commit, full refresh, undo
+snapshot, drag frame and export — against the real source modules in a real
+browser, via the Vite dev server, so it needs no production hooks and no
+build step. The x64 baseline is recorded in README. The headline: at 500
+elements a drag frame is **17–23 ms median, 24–75 ms p95** — the brief's §8.15
+minimum is met with limited headroom, with occasional stutter expected. At
+2,000 elements it is **77 ms** (≈13 fps), which is not acceptable. So the
+brief's target holds and the next order of magnitude does not; that is now a
+number rather than a guess.
+
+*Optimization.* One real fix, chosen because it is the highest
+value-per-risk: **drag rendering is coalesced to animation frames**. Pointer
+devices deliver moves at 120–1000 Hz while the display refreshes at 60–120 Hz,
+so the old code ran several full clone-and-rebuild cycles per displayed frame.
+State is still computed from the latest pointer position, and `pointerUp`
+flushes any queued frame before committing, so the undo entry still matches
+where the pointer actually stopped. The resize path was extracted from the
+pointer-move switch into `applyResizeDrag()` to make this possible, which also
+removes a 60-line inline block from a 200-line switch.
+
+**Not fixed:** the architectural work — keyed incremental SVG updates instead
+of a full `innerHTML` rebuild, and delta-based undo instead of whole-document
+clones. Both are real rewrites and the benchmark now exists to justify and
+verify them. The ARM acceptance run remains **Q16**; the benchmark is the
+thing to run there.
+
+## Medium 5 — Accessibility
+
+**Verified**, and one part was worse than the review says: `src/style.css`
+contained `#canvas-svg:focus { outline: none; }`, which suppressed the focus
+indicator on the app's main interactive surface entirely (**N8**). Combined
+with the canvas being a single focus stop with `role="img"`, a keyboard-only
+user could reach the toolbar and panels but had no way to reach, see, or act
+on an individual diagram object.
+
+**Substantially fixed:**
+
+- **Keyboard traversal.** With the canvas focused, `Tab`/`Shift+Tab` step
+  through every visible shape and connector in painting order — the same
+  order a sighted user sees them stacked — selecting each, scrolling it into
+  view if off-screen, and announcing it through a new polite ARIA live region
+  ("Start / End, 'Start'. 1 of 10."). `Enter` edits the selected shape's text.
+  Arrow keys, Delete and every existing command then apply to that selection.
+- **Canvas semantics.** `role="application"` (it is an editing surface with
+  its own key bindings, not a picture) with a label stating the traversal
+  keys.
+- **Visible focus.** `:focus-visible` ring on the canvas, so pointer clicks
+  stay quiet but keyboard focus is visible.
+- **Modal dialogs.** `aria-modal="true"`, Tab focus trapped inside the
+  dialog, and focus restored to the invoking control on close.
+- **Forced colors.** A `@media (forced-colors: active)` block ties borders and
+  focus rings to system colors so controls stay distinguishable in Windows
+  high-contrast themes.
+- **Reduced motion.** `prefers-reduced-motion` honoured globally.
+- **Exported diagrams** carry `role="img"`, a `<title>` and a generated
+  `<desc>` summarizing the content and naming the first labelled shapes —
+  the brief's §8.14 "alt text for exported diagrams, where applicable".
+
+**Not fixed, and still a release blocker (Q17):** none of this has been
+*audited*. Outstanding: a Narrator/NVDA pass, a colour-contrast check, a
+colour-blind-safe palette review, a Windows high-contrast test, touch/pen
+testing, an OS-text-scaling test, and an automated axe run in CI.
+
+## Medium 6 — Release provenance
+
+**Verified.** Installers are unsigned (Q4), and `.github/workflows/ci.yml`
+referenced every third-party action by mutable tag.
+
+**Partially fixed.** What could be done here was done:
+
+- Workflow-level `permissions: contents: read`, so the default token is
+  least-privilege and only the release job opts into `contents: write`.
+- The release job's artifact glob was **broken** — see N3 below.
+
+**Not fixed:** pinning actions to commit SHAs and `cargo-audit` to a version.
+This is mechanical, but every SHA must be verified against the upstream
+repository, and this environment cannot reach github.com or crates.io for any
+repository outside this project — both were tested and both are blocked. An
+unverified pin is an unresolvable ref and a hard CI failure, which is strictly
+worse than the mutable tag it replaces, so it was **not guessed**. The
+workflow carries a `TODO(supply-chain)` naming exactly what to do, and it is
+tracked as **Q20** and listed as a release blocker in README. Signing remains
+**Q4** (needs a certificate decision, not a code change).
+
+## Low 7 — Test coverage at system boundaries
+
+**Verified.** Fixed for everything this round touched: **32 new unit tests**
+(67 → 99) plus **5 new end-to-end smoke checks** (17 → 22). New coverage:
+document size/count/value limits, relationship-integrity repair, export size
+refusal, grid bounding, text-wrap performance, exported-SVG accessibility,
+canvas-setting dirty/undo/autosave semantics, recovered-document dirty state,
+and keyboard traversal — plus smoke checks that exercise canvas settings,
+dialog dismissal and keyboard traversal against the real UI.
+
+**Still thin** and honestly recorded in [REQUIREMENTS.md](REQUIREMENTS.md)
+§12: no automated test opens or saves through a real file dialog on either
+platform, several inspector controls are covered only through the model layer
+beneath them, there is no accessibility scan in CI, no non-Chromium browser
+run, and CI builds the Windows installers without launching them.
+
+## Low 8 — "Complete MVP" wording
+
+**Verified.** README said "FlowShark 0.1.0 is a complete, working MVP" in the
+same section that listed unmet release blockers.
+
+**Fixed.** It now reads "functional internal MVP", states that three of the
+brief's definition-of-done criteria are unmet, and links to a new
+[REQUIREMENTS.md](REQUIREMENTS.md) — a requirement-by-requirement matrix
+(Implemented / Partial / Deferred / N/A) covering every section of the brief
+with the evidence for each status, exactly as the review recommended. Writing
+it surfaced two small documentation drifts of its own: INSTRUCTIONS.md listed
+the shape-panel categories without the Connector category added in the
+previous round, and overstated smoke-test coverage of the acceptance
+criteria. Both corrected.
+
+## Low 9 — Ambiguous relationship data
+
+**Verified**, and one part was understated: group ids were checked with
+`isSafeId` but never against the element-id set, so a file could give a group
+the *same id as a shape* — after which `expandToGroup()` and `ungroup()`
+behave according to array order. The review lists this as "not checked
+against the global element-ID set", which is right, but the practical effect
+(two different objects answering to one id) is worse than "ambiguous groups".
+
+The connector-anchor part is the least severe item in the review: `resolveEnd`
+already falls back to `anchors[0]` for an unknown anchor name, so an invalid
+anchor could not crash or misrender. It was still worth closing, because a
+persisted phantom anchor silently changes meaning if a future shape gains an
+anchor by that name.
+
+**Fixed** in `validate()`: one global id namespace across shapes, connectors
+*and* groups (first claimant wins, later duplicates dropped); group membership
+deduplicated; an element can belong to only one group (first group to claim it
+wins); each element's `groupId` rebuilt from the authoritative membership
+lists rather than trusted from the file, so the two can never disagree;
+duplicate connector-label ids dropped; anchors validated against the real
+connection-point names.
+
+The review also recommends "report repairs or rejection to the user rather
+than silently dropping data". **Not done** — the parser's repair-quietly
+behavior is unchanged for structural problems, and a repair report would need
+a UI surface that doesn't exist. The one place it now speaks up is the size
+limit, which rejects rather than repairs. Worth revisiting; not a correctness
+gap.
+
+## Low 10 — Browser fallback parity
+
+**Verified.** Where the File System Access API is unavailable, `saveTextFile`
+downloads a new file, returns `{ path: null }`, and `Actions.save` reported
+"Saved <name>" and marked the document clean — implying the original file had
+been updated when in fact a new download had been written.
+
+**Fixed:** that path now says "Downloaded <name>". README gained a
+**Browser support** matrix covering open, save-in-place, recent files,
+clipboard copy and export by engine, with an explicit note that Firefox and
+Safari behavior is derived from capability detection in the code rather than
+from a test run (automated coverage is Chromium-only). INSTRUCTIONS §8 says
+the same thing in user language.
+
+**Not fixed:** running Playwright against a second engine. Worth doing if
+browser support stays a stated goal.
+
+---
+
+# New findings from the independent review
+
+## N1 (High) — Dismissing a confirmation dialog wedged the command
+
+`confirmDialog()` wrapped `openDialog()` in a promise that resolved only from
+the Cancel and Continue click handlers. But `openDialog()` also closes on
+**Escape** and on a **backdrop click**, and neither path settled the promise.
+
+So: make an edit, press Ctrl+N, press Escape. The dialog closes, the promise
+never resolves, `Actions.newFile()`'s `await this.confirmDiscard()` never
+returns, and New silently does nothing — no error, no toast, nothing to
+indicate the command died. Same for Open and New-from-template. Every
+dismissal leaked a pending promise for the life of the session.
+
+This is the most user-visible defect found in this round and it is not in
+Codex's review.
+
+**Fixed:** `openDialog()` takes an `onDismiss` callback invoked for any close
+the caller didn't initiate, and `confirmDialog()` resolves `false` there —
+Escape and backdrop click now mean the same thing as Cancel. Covered by a
+smoke check that dismisses the prompt with Escape and then verifies the
+command can be issued again and re-prompts.
+
+## N2 (High) — Recovered unsaved work could be silently re-marked as saved
+
+The crash-recovery banner did:
+
+```ts
+editor.setDoc(recovery.doc, recovery.filePath);
+editor.dirty = true;
+```
+
+`setDoc` resets `savedDepth = 0` with an empty undo stack, so the manual
+`dirty = true` is inconsistent with the state that computes it. Make one edit
+after restoring and undo it: `recomputeDirty()` sees `savedDepth (0) ===
+undoStack.length (0)` and sets `dirty = false`. The recovered diagram — which
+has *never been written anywhere* — is now considered saved. New/Open discard
+it without a prompt, `beforeunload` doesn't warn, and autosave stops
+refreshing the recovery copy.
+
+This is the same class of bug as Codex's High 1 (state that isn't part of the
+command system), reached from a different direction.
+
+**Fixed:** added `Editor.markUnsaved()`, which sets `savedDepth = null` — the
+existing sentinel for "the saved state is unreachable via undo/redo" —
+and `recomputeDirty()` now treats `null` as unconditionally dirty. Two
+regression tests.
+
+## N3 (Medium) — CI attached no installers to a tagged release
+
+`actions/upload-artifact@v4` roots an artifact at the **least common
+ancestor** of its input paths. The build job uploads both
+`…/release/bundle/nsis/*.exe` and `…/release/flowshark.exe`, so the LCA is
+`…/release/` and the installers sit at `bundle/nsis/*.exe` *inside* the
+artifact. The release job globbed `artifacts/FlowShark-windows-arm64/nsis/*.exe`
+— one directory short. `softprops/action-gh-release` defaults
+`fail_on_unmatched_files` to false, so tagging `v*` would have produced a
+draft release with **no installers attached and no error**.
+
+**Fixed:** corrected both globs to include `bundle/`, and set
+`fail_on_unmatched_files: true` so this fails loudly if it regresses. This is
+unverifiable from here (it needs a real tag push on Windows runners), so it is
+called out rather than claimed as tested.
+
+## N4 (Medium) — Unbounded grid generation
+
+Detailed under High 2 above. On-screen the grid is bounded by the viewport and
+the 0.1 zoom floor, so this only bites on export with "include grid" and
+far-flung content — but there it is a hang, not a slowdown.
+
+## N5 (Medium) — Quadratic text wrapping
+
+Detailed under High 2 above.
+
+## N6 (Low–Medium) — A storage failure turned a successful save into a failure
+
+In `Actions.save()`, `addRecentFile()` ran inside the try block *after*
+`markSaved()`. `localStorage.setItem` throws on quota exhaustion or when
+storage is disabled (private windows, some enterprise policies). The file was
+already written and the document already marked clean, but the catch reported
+`Save failed: …` and returned `false` — telling the user their work wasn't
+saved when it was, and returning false to any caller gating on it.
+
+**Fixed:** `addRecentFile` is now best-effort and swallows storage errors
+internally, with a comment saying why. The same treatment for
+`removeRecentFile`.
+
+## N7 (Low) — Recent-file entries were read back unvalidated
+
+`getRecentFiles()` did `JSON.parse` and returned the array if it was one,
+without checking entry shape. `localStorage` is shared with anything else on
+the origin and survives downgrades; a malformed record rendered as a menu item
+labelled `undefined` that passed `undefined` to `readTextFile` when clicked.
+
+**Fixed:** entries are validated and normalized on read.
+
+## N8 (Low) — No visible focus indicator on the canvas
+
+Detailed under Medium 5 above.
+
+---
+
+# Verification
+
+Every claim above was verified by running the code, not by reading it.
+
+```
+npm run typecheck        → clean
+npm test                 → 99/99 passed (was 67; 32 new tests)
+npx vite build           → clean production bundle
+node scripts/smoke.mjs   → 22/22 checks passed, including a byte-valid PDF
+                           export and the three new regression checks
+npm audit --omit=dev     → 0 vulnerabilities
+node scripts/bench.mjs   → baseline recorded in README
+```
+
+### What could not be verified here
+
+Stated plainly, because Codex's review was right to flag unverifiable claims:
+
+- **Windows-on-ARM anything.** No ARM hardware, no Windows, no WebView2. The
+  benchmark and installer behavior on the target platform remain unmeasured
+  (Q16).
+- **`cargo audit`.** `cargo-audit` is not installed and crates.io is
+  unreachable from this environment. The result recorded in Q19 stands as
+  historical evidence; CI re-runs it on every push.
+- **GitHub Actions SHAs.** github.com is unreachable for any repository
+  outside this project, so the pins in Medium 6 were deliberately not guessed
+  (Q20).
+- **Non-Chromium browsers.** The browser matrix in README is derived from the
+  capability detection in `src/platform/fileio.ts`, not from a test run.
+- **The release workflow fix (N3).** Correct by the documented
+  `upload-artifact` behavior, but only a real tag push proves it.
+- **Any accessibility audit.** The improvements in Medium 5 are code changes,
+  not audit results (Q17).
+
+---
+
+# Round 1 — response to the 2026-07-07 Codex review
+
 Response date: 2026-07-08
 Reviewed by: Claude (Sonnet 5), same agent that implemented FlowShark
 

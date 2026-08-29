@@ -203,7 +203,17 @@ html, body {
   min-width: 0;
 }
 #canvas-svg { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; display: block; }
+/*
+ * Keyboard focus must stay visible on the canvas: it is a real focus stop
+ * that owns its own key bindings (Tab traversal, Enter to edit, arrows to
+ * nudge), so hiding the ring left keyboard users unable to tell where they
+ * were. Pointer focus stays quiet via :focus-visible.
+ */
 #canvas-svg:focus { outline: none; }
+#canvas-svg:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
 #canvas-host.tool-pan #canvas-svg { cursor: grab; }
 #canvas-host.panning #canvas-svg { cursor: grabbing; }
 #canvas-host.tool-text #canvas-svg { cursor: text; }
@@ -376,4 +386,61 @@ html, body {
 @media (max-width: 900px) {
   #shape-panel { width: 170px; min-width: 170px; }
   #inspector { width: 210px; min-width: 210px; }
+}
+
+/* Visually hidden but announced by screen readers (canvas live region). */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/*
+ * Windows high-contrast / forced-colors mode replaces the palette wholesale.
+ * Keep borders and focus rings tied to system colors so controls stay
+ * distinguishable, and make sure nothing relies on a background colour that
+ * forced-colors has removed.
+ */
+@media (forced-colors: active) {
+  .tb-btn,
+  .mini-btn,
+  .dialog,
+  .toast,
+  #shape-panel,
+  #inspector {
+    border: 1px solid CanvasText;
+  }
+  .tb-btn:focus-visible,
+  .mini-btn:focus-visible,
+  .insp-row input:focus-visible,
+  .insp-row select:focus-visible,
+  #canvas-svg:focus-visible {
+    outline: 2px solid Highlight;
+    outline-offset: 1px;
+  }
+  .tb-btn.active,
+  .mini-btn.active {
+    background: Highlight;
+    color: HighlightText;
+    forced-color-adjust: none;
+  }
+}
+
+/* Respect a reduced-motion preference for every transition/animation. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

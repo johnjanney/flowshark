@@ -7,6 +7,17 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Least privilege by default; the release job opts into contents: write.
+permissions:
+  contents: read
+
+# TODO(supply-chain): pin every third-party action to an immutable commit SHA
+# (`uses: owner/action@<sha> # vX.Y.Z`) rather than a mutable tag, and pin
+# `cargo-audit` to a specific version. Both need the exact SHAs/versions
+# verified against the upstream repositories before they are committed — an
+# unverified pin is a hard CI failure, so this is tracked rather than guessed.
+# See CODEX-REVIEW-RESPONSE.md ("Release provenance").
+
 jobs:
   test:
     name: Typecheck, unit tests, build, smoke test
@@ -108,6 +119,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           draft: true
+          fail_on_unmatched_files: true
           files: |
-            artifacts/FlowShark-windows-arm64/nsis/*.exe
-            artifacts/FlowShark-windows-x64/nsis/*.exe
+            artifacts/FlowShark-windows-arm64/bundle/nsis/*.exe
+            artifacts/FlowShark-windows-x64/bundle/nsis/*.exe

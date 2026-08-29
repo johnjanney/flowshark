@@ -146,7 +146,10 @@ function main(): void {
     restore.textContent = "Restore";
     restore.addEventListener("click", () => {
       editor.setDoc(recovery.doc, recovery.filePath);
-      editor.dirty = true;
+      // Recovered content has never been written to disk, and no undo step
+      // can take the document back to a saved state, so mark it permanently
+      // unsaved rather than poking `dirty` (which the next undo would reset).
+      editor.markUnsaved();
       actions.fitToContent();
       banner.remove();
     });

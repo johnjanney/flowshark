@@ -1,6 +1,38 @@
 import type { FlowDoc } from "../model/types";
 import { exportSVG, type ExportSVGOptions } from "../canvas/render";
 import { saveBinaryFile } from "../platform/fileio";
+import { LIMITS } from "../model/limits";
+
+/** Raised when an export would exceed the supported raster size. */
+export class ExportSizeError extends Error {}
+
+/**
+ * Pixel dimensions for a raster export, refused if they exceed what a browser
+ * canvas can hold. Without this check an oversized diagram (or one whose
+ * coordinates came from an untrusted file) silently produces a blank or
+ * null-blob export, because canvas allocation fails without throwing.
+ */
+export function rasterDimensions(
+  boundsW: number,
+  boundsH: number,
+  scale: number
+): { width: number; height: number } {
+  const width = Math.max(1, Math.round(boundsW * scale));
+  const height = Math.max(1, Math.round(boundsH * scale));
+  if (
+    width > LIMITS.maxExportEdge ||
+    height > LIMITS.maxExportEdge ||
+    width * height > LIMITS.maxExportPixels
+  ) {
+    throw new ExportSizeError(
+      `This export would be ${width}×${height} pixels, which is larger than FlowShark can ` +
+        `render (limit ${LIMITS.maxExportEdge} px per side, ` +
+        `${Math.round(LIMITS.maxExportPixels / 1e6)} megapixels total). ` +
+        `Export a smaller selection or reduce the scale.`
+    );
+  }
+  return { width, height };
+}
 
 export interface ExportOptions extends ExportSVGOptions {
   format: "png" | "svg" | "pdf" | "jpeg" | "webp";
@@ -19,9 +51,10 @@ export async function rasterize(
 ): Promise<Blob> {
   const scale = opts.scale ?? 2;
   const { svg, bounds } = exportSVG(doc, { ...opts, scale: 1 });
+  const { width, height } = rasterDimensions(bounds.w, bounds.h, scale);
   const canvas = document.createElement("canvas");
-  canvas.width = Math.max(1, Math.round(bounds.w * scale));
-  canvas.height = Math.max(1, Math.round(bounds.h * scale));
+  canvas.width = width;
+  canvas.height = height;
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("Canvas 2D context unavailable");
   if (mime !== "image/png" && !opts.transparent) {
