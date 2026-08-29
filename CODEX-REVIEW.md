@@ -1,327 +1,258 @@
-# Codex Quality and Security Review
+# Codex Quality, Security, and Requirements Review
+
+Review date: 2026-08-29
+Repository state: `work` branch, FlowShark 0.1.0
+
+## Executive assessment
+
+FlowShark is a credible, unusually broad MVP. The code implements the central
+editor, the required shape library, five connector modes, text and styling,
+snapping and layout commands, grouping and ordering, undo/redo, templates,
+native JSON files, autosave/recovery, and PNG/SVG/PDF export. Its small,
+dependency-light TypeScript architecture is understandable and the existing 67
+unit tests, production build, and browser smoke suite provide a useful baseline.
+
+It does **not**, however, satisfy every objective strongly enough to call the
+brief complete or the product release-ready. The most important newly confirmed
+problem is data integrity: canvas-setting edits bypass the command system, so
+they are neither undoable nor marked dirty and can be lost without warning.
+Untrusted project files also have no resource limits, allowing extreme values or
+collection sizes to exhaust memory/CPU, especially during snapshotting or
+export. Real Windows ARM performance and accessibility remain unverified.
+
+No critical issue or currently exploitable script-injection path was found in
+this pass. The previous review's injection, unsafe SVG import, broad filesystem
+scope, dirty-state, autosave, dependency, and smoke-documentation findings have
+been addressed. Overall rating: **good internal MVP; not a public release
+candidate**.
+
+## Verification performed
+
+| Check | Result |
+| --- | --- |
+| `npm test` | Pass: 5 files, 67 tests |
+| `npm run typecheck` | Pass |
+| `npm run build` | Pass; production bundle generated |
+| `node scripts/smoke.mjs` with Playwright's reported Chromium path | Environment-blocked: the pinned Chromium executable is not installed |
+| `npm audit --omit=dev` | Environment-blocked: registry audit endpoint returned HTTP 403 |
+| `cargo audit -f src-tauri/Cargo.lock` | Environment-blocked: `cargo-audit` is not installed |
+
+The audit results recorded in `CODEX-REVIEW-RESPONSE.md` therefore remain useful
+historical evidence, but the dependency risk could not be independently
+reconfirmed in this environment.
+
+## Findings, ordered by criticality
+
+### High 1 — Canvas settings can be lost silently and cannot be undone
+
+**Categories:** correctness, reliability, error handling, data integrity,
+requirements compliance.
+
+The canvas inspector directly mutates grid size, grid visibility, snapping,
+snap tolerance, and background and then calls `editor.notify()`. The toolbar
+toggle actions do the same. These paths do not call `Editor.apply()`, so no undo
+snapshot is created and `dirty` remains false. A user can change the diagram
+background or grid settings, close or open another file without an unsaved-work
+warning, and lose the change. Autosave also skips it because autosave only runs
+for dirty documents. This violates undo/redo and safe file-management
+requirements.
+
+where appropriate), refresh from that command, and add regression tests proving
+the edit is dirty, undoable/redoable, autosave-eligible, and protected by the
+discard confirmation.
+
+### High 2 — Untrusted documents are not bounded against resource exhaustion
+
+**Categories:** security, reliability, performance, data integrity, error
+handling.
+
+`parseDoc()` parses the whole file before validation and accepts unlimited
+numbers of shapes, connectors, points, labels, groups, and arbitrarily long text
+and font-family strings. Numeric values are checked for finiteness but not given
+safe upper/lower coordinate, dimension, font-size, stroke-width, grid-size, or
+z-index bounds. A locally opened project can therefore create enormous DOM/SVG
+output, huge canvases during raster export, expensive routing, or repeated full
+document clones in the 200-entry undo stack. This is a denial-of-service risk in
+the desktop renderer and can produce browser canvas allocation failures.
+
+The raster image data URL has an 8 MB cap, which is good, but it does not bound
+the JSON document or decoded image dimensions.
+
+**Recommended fix:** reject files over a documented byte limit before
+`JSON.parse`; cap object/point/label counts and string lengths; clamp or reject
+coordinates, dimensions, styling numbers, and export pixel area; decode image
+metadata and impose pixel limits; return a clear `DocumentError`; and add
+boundary/adversarial tests.
+
+### Medium 3 — “Recent files” is unreliable outside Documents after restart
+
+**Categories:** requirements compliance, correctness, compatibility,
+reliability, documentation accuracy.
+
+The static Tauri filesystem scope is intentionally restricted to
+`$DOCUMENT/**`, while `openRecentFile()` directly reads the stored path without
+showing a dialog. Dialog-granted scope is temporary, so a recent file elsewhere
+on disk can fail after relaunch. Recent files are a required file-management
+operation in the brief, but the README presents the feature without this
+limitation; only the review response explains it.
+
+**Recommended fix:** use Tauri persisted filesystem scopes/bookmarks if
+available, request the user to reauthorize the path through the open dialog, or
+remove inaccessible entries with an explanatory prompt. Document the behavior
+until fixed and add a Windows integration test covering relaunch and a path
+outside Documents.
+
+### Medium 4 — The 500-element/Windows ARM performance target is unproven and at risk
+
+**Categories:** performance, architecture, maintainability, project-brief drift.
+
+Every content refresh rebuilds the complete SVG through `innerHTML`; selection
+and geometry queries repeatedly scan arrays; routing and snapping scan document
+objects; and each undo action stores a full structured clone for as many as 200
+steps. These choices keep the MVP simple but imply roughly linear rendering per
+refresh and potentially very high memory growth across edit history. There is no
+500-object benchmark, frame-time measurement, startup measurement, spatial
+index, or Windows ARM hardware result. The README now discloses this accurately,
+so this is an implementation/verification gap rather than hidden marketing
+drift.
+
+**Recommended fix:** add reproducible 500- and 2,000-object fixtures and measure
+startup, load/save, drag frame time, routing, memory, and export on ARM64. Profile
+before redesigning; likely improvements include keyed incremental SVG updates,
+command/delta-based history, cached indexes, spatial hit-testing, and throttled
+rendering.
 
-Review date: 2026-08-29  
-Repository: `C:\Users\johnj\Repositories\flowshark`
-
-## Executive Assessment
-
-FlowShark is a credible MVP and it materially satisfies the brief's acceptance criteria for a single-user flowchart editor. The core editor, shape library, connectors, styling, templates, file format, export pipeline, keyboard shortcuts, and desktop shell are all present and working.
-
-Quality is good for an MVP, but not yet release-ready. The biggest reasons are security hardening gaps around untrusted document/SVG input, a broader-than-necessary Tauri filesystem permission surface, and a few implementation/documentation drifts that should be cleaned up before treating this as a polished Windows ARM release.
-
-## Verification Performed
-
-- `npm test` passed: 56/56 tests.
-- `npm run typecheck` passed.
-- `npm run build` passed.
-- `npm audit --omit=dev` reported 0 production npm vulnerabilities.
-- `node scripts/smoke.mjs` failed as documented on this machine because the script hardcodes a Linux Chromium fallback at `scripts/smoke.mjs:14-16`.
-- After `npx playwright install chromium` and setting `CHROMIUM_PATH`, `node scripts/smoke.mjs` passed end-to-end.
-- `cargo` is not installed in this shell, so I could not run a Rust/Tauri dependency audit.
-
-## 1. Does The App Achieve The Project Brief Objectives?
-
-Mostly yes.
-
-What is clearly achieved:
-
-- The app meets the brief's core MVP acceptance criteria in practice: new/open/save/save-as, native `.flowshark` files, undo/redo, grouping, alignment/distribution, snap-to-grid, snap-to-element, templates, PNG/SVG/PDF export, keyboard shortcuts, shape text, connector labels, and multiple connector types all exist and work.
-- The implementation is modular in the way the brief recommends: document model, editor state, rendering, routing, templates, export, UI, and platform file I/O are separated across `src/model`, `src/core`, `src/canvas`, `src/connectors`, `src/shapes`, `src/io`, `src/ui`, and `src/platform`.
-- The app shell targets Windows ARM/x64 through Tauri and the CI workflow builds both installers.
-
-What is only partially achieved:
-
-- The broader brief asks for Windows ARM performance confidence and accessibility review. Those claims are not yet backed by real ARM performance evidence or a documented accessibility audit.
-- A few brief items are deferred or incomplete rather than shipped:
-  - General `line` and `arrow` shapes are not present in the model/registry (`src/model/types.ts:48-89`, `src/shapes/registry.ts:430-547`).
-  - The left panel does not include a connector category; connectors are chosen from the toolbar instead (`src/ui/shapePanel.ts:121-125`, `src/ui/toolbar.ts:222-253`).
-  - Obstacle-avoiding connector routing, equal-spacing snap guides, true swimlane/phase containment, and an on-canvas rotation handle are still open items (`OPENQUESTIONS.md:14-18`).
-
-Bottom line: this is a successful MVP implementation, but not a fully closed-out execution of every brief detail.
-
-## 2. How Well Does It Achieve The Objectives? (Quality)
-
-Overall quality: good MVP, not hardened release candidate.
-
-Strengths:
-
-- The architecture is clean and maintainable. The codebase is small enough to reason about, and responsibilities are separated well.
-- The editor behavior is broad for a v0.1.0 app: connectors reroute, labels work, selection/grouping/order operations are implemented, and exports are exercised in a real browser smoke test.
-- The project documentation is unusually complete for an MVP: brief, changelog, instructions, versioning, and open questions are all maintained.
-- Verification is decent: unit tests, typecheck, build, CI, and a smoke test all exist.
-
-Quality concerns:
-
-- The serialization test suite contains a no-op assertion at `tests/serialization.test.ts:24`. `expect(parsed.schemaVersion).toBeUndefined;` does not call a matcher, so this line validates nothing.
-- The smoke test is less portable than the comments and README imply. As written it assumes `/opt/pw-browsers/chromium`, which breaks on this Windows environment until `CHROMIUM_PATH` is set (`scripts/smoke.mjs:14-16`).
-- Dirty-state tracking is functionally coarse. `undo()` and `redo()` always mark the document dirty (`src/core/editor.ts:121-138`), so undoing back to the last saved state still leaves unsaved-change prompts/autosave active. That is a UX/file-management correctness issue, not just polish.
-- Autosave is best-effort and silent on failure (`src/ui/autosave.ts:16-30`). Given that imported images are stored as data URLs in the document (`src/platform/fileio.ts:162-186`), larger diagrams can plausibly exceed localStorage quotas and disable recovery without warning. This is an inferred reliability risk from the code path.
-- Performance against the brief's "hundreds of elements" target is still unproven. The current approach fully rebuilds SVG markup with `innerHTML` on refresh (`src/canvas/view.ts:155-157`) and uses full-document snapshots for undo (`src/core/editor.ts:74-119`). Both are reasonable MVP choices, but they need profiling on real Windows ARM hardware before release claims are strong.
-
-## 3. Drift Issues That Should Be Resolved
-
-1. The brief requires general `line` and `arrow` shapes, but the shipped shape model/registry does not include them. Connector tooling covers some of the use case, but it is not the same thing (`src/model/types.ts:48-89`, `src/shapes/registry.ts:430-547`).
-2. The brief's left shape panel calls for a connector category, but the implementation puts connectors only in the toolbar (`src/ui/shapePanel.ts:121-125`, `src/ui/toolbar.ts:222-253`).
-3. The product is described as optimized for Windows on ARM, but that claim is still largely architectural rather than empirically demonstrated. CI builds ARM64 installers, but there are no benchmarks or hardware validation artifacts in the repo.
-4. Several known functional gaps are already tracked and should remain explicit release blockers if the goal is "complete MVP per brief": obstacle avoidance, equal-spacing snap guides, swimlane/phase ownership semantics, and interactive rotation (`OPENQUESTIONS.md:14-18`).
-5. The smoke-test instructions drift from actual behavior on Windows. The repo says to run `node scripts/smoke.mjs`, but that fails here without first installing Chromium and setting `CHROMIUM_PATH` (`scripts/smoke.mjs:14-16`).
-
-## 4. Security Assessment
-
-No critical vulnerability was proven during this review, but there is one high-severity renderer hardening gap and two meaningful medium-severity issues.
-
-### 1. High: Untrusted `.flowshark` files can inject unsanitized SVG/HTML attributes into the renderer and export path
-
-Why this exists:
-
-- The parser only type-checks many string fields and preserves them as-is:
-  - generic strings via `str()` at `src/model/serialization.ts:65-66`
-  - canvas background at `src/model/serialization.ts:137`
-  - text color/font fields at `src/model/serialization.ts:145-153`
-  - stroke color at `src/model/serialization.ts:160-163`
-  - shape IDs, fill colors, group IDs, and imageSrc at `src/model/serialization.ts:167-191`
-  - connector IDs and label background/border strings at `src/model/serialization.ts:212-245`
-- Those fields are then interpolated directly into SVG attributes without escaping:
-  - shape fill/stroke/id at `src/canvas/render.ts:41-57`, `src/canvas/render.ts:77-79`
-  - connector stroke/label background/border/id at `src/canvas/render.ts:89-92`, `src/canvas/render.ts:137-160`
-  - canvas background at `src/canvas/render.ts:235-238`
-- The resulting SVG strings are inserted with `innerHTML` in both the live renderer and PDF export path:
-  - `src/canvas/view.ts:155-157`
-  - `src/canvas/view.ts:257`
-  - `src/io/export.ts:63-65`
-
-Impact:
-
-- A malicious project file can break out of attribute context and inject additional SVG/HTML markup into the privileged Tauri renderer/export DOM.
-- The CSP reduces some exploit paths, but this is still a high-severity desktop-app issue because the renderer has Tauri APIs available and the app intentionally loads untrusted local files.
-
-Recommended fix:
-
-- Strictly validate or normalize all persisted style/id-like fields before rendering.
-- Do not trust IDs from imported documents; regenerate them or escape them.
-- Restrict colors/backgrounds/borders to safe formats.
-- Prefer DOM/SVG element creation APIs over large `innerHTML` string concatenation for untrusted document content.
-- Add regression tests with attribute-breaking payloads.
-
-### 2. Medium: Imported SVG images are accepted without sanitization
-
-Why this exists:
-
-- SVG is accepted as an import format in `src/platform/fileio.ts:177-186` and `src/platform/fileio.ts:191-195`.
-- The document sanitizer only checks that `imageSrc` starts with `data:image/` (`src/model/serialization.ts:191`).
-
-Impact:
-
-- Potentially active or externally-referencing SVG content can be embedded into documents, copied to clipboard, or exported downstream without sanitization.
-- The brief explicitly calls out sanitizing SVG imports where applicable; this is currently not done.
-
-Recommended fix:
-
-- Either disable SVG import for now or sanitize imported SVG aggressively before persistence/export.
-- At minimum strip script, event attributes, `foreignObject`, and external references.
-
-### 3. Medium: Tauri filesystem scope is broader than the app appears to need
-
-Why this exists:
-
-- The default capability grants read/write file permissions plus recursive scope across `$HOME`, `$DOCUMENT`, `$DOWNLOAD`, `$DESKTOP`, `$PICTURE`, and `$APPDATA` (`src-tauri/capabilities/default.json:6-24`).
-
-Impact:
-
-- Any renderer compromise has a much larger local-file blast radius than necessary for a diagram editor.
-- This is especially relevant because the renderer currently parses and renders untrusted local project files.
-
-Recommended fix:
-
-- Narrow scopes to the minimum needed for dialog-selected documents, exports, and app recovery data.
-- Avoid broad `$HOME/**` access unless a concrete feature requires it.
-
-### 4. Low: Unsigned Windows installers remain a release-security issue
-
-Why this exists:
-
-- Installer signing is still open and SmartScreen warnings are expected (`OPENQUESTIONS.md:22`).
-
-Impact:
-
-- Users have weak provenance guarantees and will see trust warnings on install.
-
-Recommended fix:
-
-- Sign ARM64/x64 installers before public distribution and document the release verification path.
-
-## Overall Conclusion
-
-FlowShark achieves the brief well enough to count as a strong MVP. Functionally, it is much closer to "done" than most first versions. The blockers are not core editor breadth; they are hardening and polish.
-
-If the goal is an internal MVP/demo, the project is in good shape now. If the goal is a release candidate for outside users, the following should be treated as required next steps:
-
-1. Fix the untrusted document-to-SVG `innerHTML` injection path.
-2. Sanitize or disable SVG import until it is safe.
-3. Reduce Tauri filesystem scope.
-4. Clean up the verification gaps: the no-op test assertion, the smoke-test portability issue, and dirty-state correctness.
-5. Validate performance and accessibility on real Windows ARM hardware before keeping the current marketing claims.
-
-# Codex Quality and Security Review
-
-Review date: 2026-07-07  
-Repository: `C:\Users\johnj\Repositories\flowshark`
-
-## Executive Assessment
-
-FlowShark is a credible MVP and it materially satisfies the brief's acceptance criteria for a single-user flowchart editor. The core editor, shape library, connectors, styling, templates, file format, export pipeline, keyboard shortcuts, and desktop shell are all present and working.
-
-Quality is good for an MVP, but not yet release-ready. The biggest reasons are security hardening gaps around untrusted document/SVG input, a broader-than-necessary Tauri filesystem permission surface, and a few implementation/documentation drifts that should be cleaned up before treating this as a polished Windows ARM release.
-
-## Verification Performed
-
-- `npm test` passed: 56/56 tests.
-- `npm run typecheck` passed.
-- `npm run build` passed.
-- `npm audit --omit=dev` reported 0 production npm vulnerabilities.
-- `node scripts/smoke.mjs` failed as documented on this machine because the script hardcodes a Linux Chromium fallback at `scripts/smoke.mjs:14-16`.
-- After `npx playwright install chromium` and setting `CHROMIUM_PATH`, `node scripts/smoke.mjs` passed end-to-end.
-- `cargo` is not installed in this shell, so I could not run a Rust/Tauri dependency audit.
-
-## 1. Does The App Achieve The Project Brief Objectives?
-
-Mostly yes.
-
-What is clearly achieved:
-
-- The app meets the brief's core MVP acceptance criteria in practice: new/open/save/save-as, native `.flowshark` files, undo/redo, grouping, alignment/distribution, snap-to-grid, snap-to-element, templates, PNG/SVG/PDF export, keyboard shortcuts, shape text, connector labels, and multiple connector types all exist and work.
-- The implementation is modular in the way the brief recommends: document model, editor state, rendering, routing, templates, export, UI, and platform file I/O are separated across `src/model`, `src/core`, `src/canvas`, `src/connectors`, `src/shapes`, `src/io`, `src/ui`, and `src/platform`.
-- The app shell targets Windows ARM/x64 through Tauri and the CI workflow builds both installers.
-
-What is only partially achieved:
-
-- The broader brief asks for Windows ARM performance confidence and accessibility review. Those claims are not yet backed by real ARM performance evidence or a documented accessibility audit.
-- A few brief items are deferred or incomplete rather than shipped:
-  - General `line` and `arrow` shapes are not present in the model/registry (`src/model/types.ts:48-89`, `src/shapes/registry.ts:430-547`).
-  - The left panel does not include a connector category; connectors are chosen from the toolbar instead (`src/ui/shapePanel.ts:121-125`, `src/ui/toolbar.ts:222-253`).
-  - Obstacle-avoiding connector routing, equal-spacing snap guides, true swimlane/phase containment, and an on-canvas rotation handle are still open items (`OPENQUESTIONS.md:14-18`).
-
-Bottom line: this is a successful MVP implementation, but not a fully closed-out execution of every brief detail.
-
-## 2. How Well Does It Achieve The Objectives? (Quality)
-
-Overall quality: good MVP, not hardened release candidate.
-
-Strengths:
-
-- The architecture is clean and maintainable. The codebase is small enough to reason about, and responsibilities are separated well.
-- The editor behavior is broad for a v0.1.0 app: connectors reroute, labels work, selection/grouping/order operations are implemented, and exports are exercised in a real browser smoke test.
-- The project documentation is unusually complete for an MVP: brief, changelog, instructions, versioning, and open questions are all maintained.
-- Verification is decent: unit tests, typecheck, build, CI, and a smoke test all exist.
-
-Quality concerns:
-
-- The serialization test suite contains a no-op assertion at `tests/serialization.test.ts:24`. `expect(parsed.schemaVersion).toBeUndefined;` does not call a matcher, so this line validates nothing.
-- The smoke test is less portable than the comments and README imply. As written it assumes `/opt/pw-browsers/chromium`, which breaks on this Windows environment until `CHROMIUM_PATH` is set (`scripts/smoke.mjs:14-16`).
-- Dirty-state tracking is functionally coarse. `undo()` and `redo()` always mark the document dirty (`src/core/editor.ts:121-138`), so undoing back to the last saved state still leaves unsaved-change prompts/autosave active. That is a UX/file-management correctness issue, not just polish.
-- Autosave is best-effort and silent on failure (`src/ui/autosave.ts:16-30`). Given that imported images are stored as data URLs in the document (`src/platform/fileio.ts:162-186`), larger diagrams can plausibly exceed localStorage quotas and disable recovery without warning. This is an inferred reliability risk from the code path.
-- Performance against the brief's "hundreds of elements" target is still unproven. The current approach fully rebuilds SVG markup with `innerHTML` on refresh (`src/canvas/view.ts:155-157`) and uses full-document snapshots for undo (`src/core/editor.ts:74-119`). Both are reasonable MVP choices, but they need profiling on real Windows ARM hardware before release claims are strong.
-
-## 3. Drift Issues That Should Be Resolved
-
-1. The brief requires general `line` and `arrow` shapes, but the shipped shape model/registry does not include them. Connector tooling covers some of the use case, but it is not the same thing (`src/model/types.ts:48-89`, `src/shapes/registry.ts:430-547`).
-2. The brief's left shape panel calls for a connector category, but the implementation puts connectors only in the toolbar (`src/ui/shapePanel.ts:121-125`, `src/ui/toolbar.ts:222-253`).
-3. The product is described as optimized for Windows on ARM, but that claim is still largely architectural rather than empirically demonstrated. CI builds ARM64 installers, but there are no benchmarks or hardware validation artifacts in the repo.
-4. Several known functional gaps are already tracked and should remain explicit release blockers if the goal is "complete MVP per brief": obstacle avoidance, equal-spacing snap guides, swimlane/phase ownership semantics, and interactive rotation (`OPENQUESTIONS.md:14-18`).
-5. The smoke-test instructions drift from actual behavior on Windows. The repo says to run `node scripts/smoke.mjs`, but that fails here without first installing Chromium and setting `CHROMIUM_PATH` (`scripts/smoke.mjs:14-16`).
-
-## 4. Security Assessment
-
-No critical vulnerability was proven during this review, but there is one high-severity renderer hardening gap and two meaningful medium-severity issues.
-
-### 1. High: Untrusted `.flowshark` files can inject unsanitized SVG/HTML attributes into the renderer and export path
-
-Why this exists:
-
-- The parser only type-checks many string fields and preserves them as-is:
-  - generic strings via `str()` at `src/model/serialization.ts:65-66`
-  - canvas background at `src/model/serialization.ts:137`
-  - text color/font fields at `src/model/serialization.ts:145-153`
-  - stroke color at `src/model/serialization.ts:160-163`
-  - shape IDs, fill colors, group IDs, and imageSrc at `src/model/serialization.ts:167-191`
-  - connector IDs and label background/border strings at `src/model/serialization.ts:212-245`
-- Those fields are then interpolated directly into SVG attributes without escaping:
-  - shape fill/stroke/id at `src/canvas/render.ts:41-57`, `src/canvas/render.ts:77-79`
-  - connector stroke/label background/border/id at `src/canvas/render.ts:89-92`, `src/canvas/render.ts:137-160`
-  - canvas background at `src/canvas/render.ts:235-238`
-- The resulting SVG strings are inserted with `innerHTML` in both the live renderer and PDF export path:
-  - `src/canvas/view.ts:155-157`
-  - `src/canvas/view.ts:257`
-  - `src/io/export.ts:63-65`
-
-Impact:
-
-- A malicious project file can break out of attribute context and inject additional SVG/HTML markup into the privileged Tauri renderer/export DOM.
-- The CSP reduces some exploit paths, but this is still a high-severity desktop-app issue because the renderer has Tauri APIs available and the app intentionally loads untrusted local files.
-
-Recommended fix:
-
-- Strictly validate or normalize all persisted style/id-like fields before rendering.
-- Do not trust IDs from imported documents; regenerate them or escape them.
-- Restrict colors/backgrounds/borders to safe formats.
-- Prefer DOM/SVG element creation APIs over large `innerHTML` string concatenation for untrusted document content.
-- Add regression tests with attribute-breaking payloads.
-
-### 2. Medium: Imported SVG images are accepted without sanitization
-
-Why this exists:
-
-- SVG is accepted as an import format in `src/platform/fileio.ts:177-186` and `src/platform/fileio.ts:191-195`.
-- The document sanitizer only checks that `imageSrc` starts with `data:image/` (`src/model/serialization.ts:191`).
-
-Impact:
-
-- Potentially active or externally-referencing SVG content can be embedded into documents, copied to clipboard, or exported downstream without sanitization.
-- The brief explicitly calls out sanitizing SVG imports where applicable; this is currently not done.
-
-Recommended fix:
-
-- Either disable SVG import for now or sanitize imported SVG aggressively before persistence/export.
-- At minimum strip script, event attributes, `foreignObject`, and external references.
-
-### 3. Medium: Tauri filesystem scope is broader than the app appears to need
-
-Why this exists:
-
-- The default capability grants read/write file permissions plus recursive scope across `$HOME`, `$DOCUMENT`, `$DOWNLOAD`, `$DESKTOP`, `$PICTURE`, and `$APPDATA` (`src-tauri/capabilities/default.json:6-24`).
-
-Impact:
-
-- Any renderer compromise has a much larger local-file blast radius than necessary for a diagram editor.
-- This is especially relevant because the renderer currently parses and renders untrusted local project files.
-
-Recommended fix:
-
-- Narrow scopes to the minimum needed for dialog-selected documents, exports, and app recovery data.
-- Avoid broad `$HOME/**` access unless a concrete feature requires it.
-
-### 4. Low: Unsigned Windows installers remain a release-security issue
-
-Why this exists:
-
-- Installer signing is still open and SmartScreen warnings are expected (`OPENQUESTIONS.md:22`).
-
-Impact:
-
-- Users have weak provenance guarantees and will see trust warnings on install.
-
-Recommended fix:
-
-- Sign ARM64/x64 installers before public distribution and document the release verification path.
-
-## Overall Conclusion
-
-FlowShark achieves the brief well enough to count as a strong MVP. Functionally, it is much closer to "done" than most first versions. The blockers are not core editor breadth; they are hardening and polish.
-
-If the goal is an internal MVP/demo, the project is in good shape now. If the goal is a release candidate for outside users, the following should be treated as required next steps:
-
-1. Fix the untrusted document-to-SVG `innerHTML` injection path.
-2. Sanitize or disable SVG import until it is safe.
-3. Reduce Tauri filesystem scope.
-4. Clean up the verification gaps: the no-op test assertion, the smoke-test portability issue, and dirty-state correctness.
-5. Validate performance and accessibility on real Windows ARM hardware before keeping the current marketing claims.
+### Medium 5 — Accessibility is partial and has no validation
+
+**Categories:** accessibility, requirements compliance, compatibility.
+
+Toolbar and panel controls generally have labels and focus styling, but canvas
+objects are rendered as SVG graphics without an accessible object tree or a
+keyboard mechanism to traverse/select individual diagram elements. Essential
+editing remains pointer-centric. There is no automated accessibility check,
+screen-reader transcript, contrast report, high-contrast-mode test, touch/pen
+test, or documented Windows keyboard-only acceptance run.
+
+**Recommended fix:** define the intended accessible diagram interaction model;
+expose shapes/connectors through a synchronized tree/list with names, roles, and
+selection state; support keyboard traversal and manipulation; respect forced
+colors and reduced motion; add axe-based checks; and validate with Narrator,
+keyboard-only use, high contrast, touch, and scaling on Windows.
+
+### Medium 6 — Public release provenance remains unresolved
+
+**Categories:** security, dependency risk, reliability.
+
+Windows installers are unsigned (tracked as Q4). Users cannot verify publisher
+identity and should expect SmartScreen friction. CI actions and Rust/npm
+dependencies are mostly version-tagged or semver-ranged rather than pinned to
+immutable revisions, increasing supply-chain exposure. The audit job is useful,
+but `cargo install cargo-audit` on every run is slow and itself fetches mutable
+tooling.
+
+**Recommended fix:** sign and timestamp both architectures, publish checksums and
+release provenance/SBOMs, pin third-party GitHub Actions by commit SHA, use
+Dependabot/Renovate, and install a pinned `cargo-audit` version or trusted cached
+binary.
+
+
+### Low 7 — Automated coverage is strong in core logic but thin at system boundaries
+
+**Categories:** test coverage, error handling, compatibility, maintainability.
+
+Unit tests cover editor, serialization, rendering, routing, and snapping, and the
+smoke test exercises a useful happy path. Missing coverage includes canvas dirty
+tracking, autosave quota/failure/recovery lifecycle, browser and Tauri save
+cancellation/failure, recent-file permissions after restart, clipboard failure,
+malformed-size limits, export allocation failures, keyboard-only workflows,
+accessibility, and native Windows ARM/x64 runtime behavior. CI builds installers
+but does not launch/test them.
+
+**Recommended fix:** add focused unit tests for error branches, Playwright tests
+for persistence and keyboard workflows, accessibility scans, and a small native
+post-build launch/file-I/O smoke test on each Windows architecture.
+
+### Low 8 — “Complete MVP” wording conflicts with acknowledged brief gaps
+
+**Categories:** documentation accuracy, requirements compliance,
+project-brief drift.
+
+The README calls 0.1.0 a “complete, working MVP” while the same section lists
+unmet release blockers and deferred brief features. SVG import is safely disabled
+but remains a recommended import capability; obstacle avoidance and
+equal-spacing guides are deferred; performance/accessibility acceptance is not
+demonstrated. The release-readiness disclosure is good, but “complete” is still
+easy to misread as complete compliance with the project brief.
+
+**Recommended fix:** say “functional internal MVP implementing the core
+acceptance workflow” and maintain a requirement traceability matrix with
+Implemented / Partial / Deferred / Not applicable plus evidence for each brief
+item.
+
+### Low 9 — Validation permits ambiguous/corrupt relationship data
+
+**Categories:** data integrity, correctness, maintainability.
+
+Group IDs are not checked against the global element-ID set or against earlier
+group IDs, member IDs are not deduplicated, labels need not be unique within a
+connector, and connector anchor names are accepted as arbitrary strings. This is
+not currently an injection vector because output is escaped, but malformed files
+can create ambiguous groups and inconsistent selection/ungroup behavior.
+
+**Recommended fix:** enforce globally unique IDs (including groups and labels),
+deduplicate group membership, reject overlapping/inconsistent group ownership,
+validate anchors against the shape's declared connection points, and report
+repairs or rejection to the user rather than silently dropping data.
+
+### Low 10 — Browser fallback behavior is less capable than desktop behavior
+
+**Categories:** compatibility, reliability, documentation accuracy.
+
+Where the File System Access API is unavailable, Save downloads a new file and
+then reports success/marks the document saved; subsequent saves cannot overwrite
+that download in place. Clipboard export also depends on browser clipboard
+support and permissions. The code handles many failures at the action boundary,
+but feature parity varies substantially by browser.
+
+**Recommended fix:** document the supported browser matrix and degraded save/
+clipboard behavior, detect capabilities in the UI, label fallback actions as
+downloads, and run Playwright coverage in Chromium plus at least one additional
+engine if browser compatibility remains a stated goal.
+
+## Requirements and drift summary
+
+| Area | Assessment |
+| --- | --- |
+| Purpose / core workflow | Achieved: users can create, edit, connect, style, arrange, save, reopen, and export diagrams. |
+| Required shape library | Achieved, including line/arrow and container entries. |
+| Connectors and labels | Largely achieved; obstacle avoidance is deferred and manual routing is intentionally basic. |
+| Text and styling | Achieved for required controls; optional lists/auto-fit/format painter variants are not all present. |
+| Layout/object management | Achieved for required alignment, distribution, grouping, order, locking, and snapping; equal-spacing guides are deferred. |
+| File operations | Partial because recent-file authorization is unreliable outside Documents. |
+| Export | Achieved for PNG/SVG/PDF; important resource limits are absent. |
+| Templates/shortcuts | Achieved for the required template set and documented shortcut set. |
+| Accessibility | Partial and unverified. |
+| Performance | Architecturally plausible for small diagrams; minimum 500-element target unverified. |
+| Security/privacy | Major prior injection and permission issues are fixed; local-only design has low privacy exposure, but resource-exhaustion and release provenance remain. No telemetry or cloud transfer was found. |
+| Architecture/code quality | Good separation and readability; direct canvas mutations bypass the otherwise sound command boundary. |
+| Documentation | Extensive and mostly accurate, with the completeness/recent-files qualifications noted above. |
+| Dependency risk | Managed with lockfiles and CI audits, but current audits could not be rerun here and supply-chain pinning can improve. |
+
+## Recommended remediation order
+
+1. Fix canvas mutations to participate in commands, dirty state, undo, and autosave.
+2. Add document/import/export resource limits and adversarial tests.
+3. Make recent-file authorization durable or explicitly reauthorize it.
+4. Establish the 500-object ARM64 benchmark and accessible interaction model.
+5. Sign releases and harden dependency/action provenance.
+6. Expand boundary, native-runtime, browser-compatibility, and accessibility tests.
+7. Add a living requirements traceability matrix and qualify “complete MVP.”
+
+## Final conclusion
+
+The code achieves the product's purpose and most functional requirements with
+good MVP-level design quality. It is appropriate for internal demonstrations and
+continued engineering. It should not be represented as fully compliant or ready
+for public distribution until silent canvas-setting data loss and unbounded
+document resource consumption are fixed, and Windows ARM performance,
+accessibility, installer signing, and native file workflows are validated.
