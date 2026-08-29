@@ -30,6 +30,20 @@ See [VERSIONING.md](VERSIONING.md) for how versions, releases, and the
   bundle yet. `imageSrc` is now validated against a raster-only allowlist
   at every entry point (file import, clipboard paste, and document
   parsing), not just the file picker's extension filter.
+- **Moderate**: bumped `dompurify` (bundled through jsPDF's optional
+  `html()` support, and present in `dist/` as a lazily-loaded chunk) from
+  3.4.11 to 3.4.14, clearing two DOMPurify XSS advisories
+  ([GHSA-c2j3-45gr-mqc4](https://github.com/advisories/GHSA-c2j3-45gr-mqc4),
+  [GHSA-55q2-fjhq-7xh7](https://github.com/advisories/GHSA-55q2-fjhq-7xh7)).
+  `npm audit --omit=dev` is clean again; PDF export re-verified via the
+  smoke test.
+- **Defense in depth**: escaped the document-derived element ids that the
+  selection-overlay layer interpolates into SVG attributes
+  (`src/canvas/view.ts`, which also renders via `innerHTML`). The parse
+  boundary already restricts ids to `[A-Za-z0-9_-]`, so this was not
+  exploitable, but it was the one remaining `innerHTML` path in the app
+  that trusted upstream validation instead of escaping at the point of
+  output — the same pattern that produced the High-severity finding.
 - **Medium**: narrowed the Tauri filesystem capability scope from
   `$HOME/**` plus five other broad directories down to just
   `$DOCUMENT/**`. Every file operation (open/save/export/import) goes
@@ -55,6 +69,15 @@ See [VERSIONING.md](VERSIONING.md) for how versions, releases, and the
 - Autosave failures (e.g. a large diagram with embedded images exceeding
   the browser's storage quota) were silently swallowed forever. Now warns
   the user once per session via a toast so they know to save manually.
+- Documentation drift left by the SVG-import removal: INSTRUCTIONS.md still
+  advertised SVG as an importable format. It now lists the raster formats
+  that are actually accepted and explains why SVG is excluded.
+- README's smoke-test instructions omitted the one-time `npx playwright
+  install chromium` step, so `node scripts/smoke.mjs` still failed on a
+  fresh clone even after the script's hardcoded Chromium path was removed.
+- README described the app as "optimized for Windows 11 on ARM" and its
+  controls as "accessible" without evidence for either. Both claims are now
+  stated as design intent with the validation gaps named (Q16/Q17).
 - `tests/serialization.test.ts` had a no-op assertion
   (`expect(x).toBeUndefined` missing its call parens) that silently
   validated nothing.
@@ -65,6 +88,19 @@ See [VERSIONING.md](VERSIONING.md) for how versions, releases, and the
 
 ### Added
 
+- A `Dependency audit (npm + cargo)` CI job running `npm audit --omit=dev
+  --audit-level=moderate` and `cargo audit` on every push and PR. The
+  original review could not audit the Rust/Tauri dependency tree at all
+  (no `cargo` on the reviewer's machine); it has now been run — 0
+  vulnerabilities, 17 unmaintained/unsound warnings, 11 of which are the
+  GTK3 stack that only compiles on Linux and never ships in the Windows
+  builds, and 6 the unmaintained `unic-*` crates pulled in transitively by
+  `tauri-utils` via `urlpattern`. CI keeps both audits from silently
+  drifting again.
+- A **Release readiness** section in README.md naming the three things that
+  block a public release (unsigned installers, unmeasured Windows-on-ARM
+  performance, no accessibility audit) and the brief items that are
+  knowingly deferred, so "MVP" and "release candidate" aren't conflated.
 - Two general shapes from the brief (§8.2) that were missing from the
   shape library: **Line** and **Arrow**.
 - A **Connectors** category in the left shape panel (brief §8.13), between
