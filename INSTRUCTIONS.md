@@ -10,8 +10,8 @@ export professional flowcharts.
 
 - **Toolbar (top)** — File/Edit/View menus, undo/redo, tools, snapping
   toggles, arrange menus, group/lock, export, document title, dark mode.
-- **Shape panel (left)** — searchable shape library: Flowchart, General, and
-  Container categories plus your recently used shapes.
+- **Shape panel (left)** — searchable shape library: Flowchart, General,
+  Connector and Container categories plus your recently used shapes.
 - **Canvas (center)** — the diagram itself.
 - **Inspector (right)** — properties for whatever is selected (canvas
   settings when nothing is selected).
@@ -112,11 +112,26 @@ another selection.
 - **Ctrl+N** new, **Ctrl+O** open, **Ctrl+S** save, **Ctrl+Shift+S** save as.
   Projects are JSON `.flowshark` files with a versioned schema — newer
   FlowShark versions always open older files.
-- **Recent files** appear in the File menu (desktop app).
+- **Recent files** appear in the File menu (desktop app). FlowShark's
+  standing permission covers your **Documents** folder. A project you opened
+  from somewhere else works for the rest of that session, but after you
+  restart the app FlowShark will ask you to pick it again from the file
+  dialog — choose the file and it opens normally; decline and the entry is
+  removed. Keeping projects under Documents avoids this.
 - **Autosave** snapshots your work every 15 seconds. If the app closes
   unexpectedly, a **Restore** banner offers the recovered diagram on next
-  launch.
+  launch. A restored diagram counts as unsaved until you save it, even if
+  you undo your way back past everything you did after restoring.
 - You'll be warned before discarding unsaved changes (new/open/close).
+  Grid, snapping and background changes count as changes: they are undoable
+  and part of the saved document, like anything else you edit.
+- **In a browser** (rather than the desktop app), saving depends on the
+  engine. Chromium-based browsers can save over the same file; Firefox and
+  Safari download a new copy each time, and FlowShark says "Downloaded…"
+  rather than "Saved…" so you can tell the difference.
+- FlowShark refuses to open `.flowshark` files larger than 32 MB, and
+  repairs (rather than trusts) files with corrupt structure — duplicate
+  ids, overlapping groups or out-of-range values are fixed on load.
 
 ## 9. Import and export
 
@@ -166,6 +181,17 @@ another selection.
 | Alt (while dragging) | Disable snapping |
 | Alt+click bend point | Remove bend point |
 | Shift (while resizing) | Keep aspect ratio |
+| Tab / Shift+Tab (canvas focused) | Select the next / previous object |
+| Enter (canvas focused) | Edit the selected shape's text |
+
+### Working without a mouse
+
+Click the canvas once (or Tab to it from the toolbar), then use **Tab** and
+**Shift+Tab** to step through every shape and connector in the diagram in
+front-to-back order. Each one is selected as you reach it and announced to
+screen readers. From there **Enter** edits its text, the **arrow keys** move
+it, **Delete** removes it, and every command in the table above applies to
+the selection. **Esc** deselects and returns you to the normal Tab order.
 
 ## 11. Tips
 

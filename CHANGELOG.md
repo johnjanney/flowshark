@@ -11,6 +11,127 @@ See [VERSIONING.md](VERSIONING.md) for how versions, releases, and the
 
 ### Security
 
+- **Untrusted documents are now bounded** (`src/model/limits.ts`). A
+  `.flowshark` file is ordinary JSON that can come from anywhere; previously
+  the parser checked numbers for finiteness but imposed no upper bounds, so a
+  crafted or corrupt file could exhaust memory/CPU through unlimited element
+  counts, extreme coordinates, million-character strings, or a two-unit grid
+  spanning millions of document units. Files over 32 MB are now refused
+  before `JSON.parse` with an explanatory `DocumentError`; shape, connector,
+  group, bend-point and label counts are capped; coordinates, dimensions,
+  rotation, font size, stroke width, corner radius, padding, z-index, grid
+  size and snap tolerance are clamped; text, titles and font-family strings
+  are truncated. Grid generation widens its step rather than emitting
+  unbounded path segments, and raster export refuses sizes above 80 MP /
+  20,000 px per side with a message naming the limit instead of failing
+  opaquely inside the canvas allocator. Adversarial tests in
+  `tests/limits.test.ts`.
+- **Hardened document relationship validation.** Ids are now unique across
+  one global namespace (shapes, connectors *and* groups — previously a group
+  could reuse an element's id), group membership is deduplicated, an element
+  can belong to only one group, each element's `groupId` is rebuilt from the
+  authoritative membership lists rather than trusted from the file, duplicate
+  connector-label ids are dropped, and connector anchors are validated
+  against the real connection-point names instead of accepting any string.
+  Malformed files are repaired deterministically rather than producing
+  ambiguous selection/ungroup behavior.
+- **Least-privilege CI token.** `.github/workflows/ci.yml` now declares
+  `permissions: contents: read` at the workflow level; only the release job
+  opts into `contents: write`.
+
+### Fixed
+
+- **Canvas settings were lost silently and could not be undone.** Grid size,
+  grid visibility, snap-to-grid, snap-to-element, snap tolerance and the
+  diagram background were mutated directly by the inspector and the toolbar
+  toggles, bypassing the command system: they left `dirty` false, pushed no
+  undo entry, and were skipped by autosave (which only runs for dirty
+  documents), so changing the background and then opening another file
+  discarded the change with no warning. All six now go through a new
+  `Editor.setCanvas()` command — undoable, dirty-marking, autosave-eligible,
+  and covered by the unsaved-changes confirmation. Regression tests in
+  `tests/editor.test.ts` and `scripts/smoke.mjs`.
+- **Dismissing a confirmation dialog wedged the command that opened it.**
+  `confirmDialog()` only settled its promise when a button was clicked, so
+  closing the unsaved-changes prompt with Escape or a backdrop click left the
+  promise pending forever and New / Open / New-from-template silently did
+  nothing, with no error and no way to tell what happened. `openDialog()`
+  now takes an `onDismiss` callback and `confirmDialog()` resolves `false` on
+  any dismissal. Covered by the smoke test.
+- **Recovered work could be silently re-marked as saved.** The crash-recovery
+  banner set `editor.dirty = true` directly, but `savedDepth` still pointed at
+  the (empty) undo stack, so undoing an edit made after restoring recomputed
+  `dirty` back to false — the never-saved recovered diagram then had no
+  unsaved-changes guard. Added `Editor.markUnsaved()`, which marks the saved
+  state permanently unreachable.
+- **A failed recent-files write turned a successful save into "Save failed".**
+  `addRecentFile()` ran inside `Actions.save()`'s try block and could throw on
+  a full or disabled `localStorage`, after the file had already been written
+  and the document marked clean. It is now best-effort and swallows storage
+  errors, and also validates entries it reads back so a corrupt record can't
+  render as an `undefined` menu item.
+- **Recent files outside Documents failed with a raw permission error.** The
+  desktop build's persistent filesystem scope is `$DOCUMENT/**` and the wider
+  grant an open dialog confers does not survive a restart. FlowShark now
+  detects the failure, offers to reopen the file through the dialog (which
+  restores access), and removes the entry if the user declines. Documented in
+  README and INSTRUCTIONS; tracked as Q21.
+- **CI never attached installers to a release.** `actions/upload-artifact@v4`
+  roots an artifact at the least common ancestor of its input paths, so the
+  NSIS installers landed under `bundle/nsis/` inside the artifact while the
+  release job globbed `nsis/*.exe`. Tagged releases were therefore created
+  empty, silently. Fixed the glob and set `fail_on_unmatched_files: true` so
+  the job fails loudly if it ever regresses.
+- **Long unbroken text could hang the renderer.** `wrapText()`'s hard-break
+  path walked back one character at a time, making it O(n²) text measurements
+  for a long run; it now binary-searches the break point.
+- **The canvas had no visible focus indicator.** `#canvas-svg:focus { outline:
+  none }` suppressed it entirely, leaving keyboard users unable to tell where
+  focus was on the app's main interactive surface. Replaced with a
+  `:focus-visible` ring.
+
+### Added
+
+- **Keyboard traversal of the diagram.** With the canvas focused, `Tab` and
+  `Shift+Tab` step through every shape and connector in painting order,
+  selecting each and announcing it through a polite ARIA live region;
+  `Enter` edits the selected shape's text. Previously a keyboard-only user
+  could reach the toolbar and panels but never an individual diagram object.
+- **Accessibility improvements.** Modal dialogs are `aria-modal`, trap Tab
+  focus and restore focus to the invoking control on close; the canvas is
+  `role="application"` with an instructional label; `forced-colors` (Windows
+  high contrast) and `prefers-reduced-motion` are honoured; exported SVGs
+  carry `role="img"`, a `<title>` and a generated `<desc>` describing the
+  diagram's content (brief §8.14, "alt text for exported diagrams").
+- **`scripts/bench.mjs`** — a reproducible performance benchmark that
+  generates 100/500/2,000-element fixtures and times parsing, routing, SVG
+  build, DOM commit, undo snapshots, drag frames and export against the real
+  modules in a real browser. The x64 baseline is recorded in README; the
+  Windows-on-ARM acceptance run (Q16) is this script on that hardware.
+- **[REQUIREMENTS.md](REQUIREMENTS.md)** — a requirement-by-requirement
+  traceability matrix (Implemented / Partial / Deferred / N/A with evidence)
+  covering every section of the brief, so "MVP complete" is checkable rather
+  than asserted.
+
+### Changed
+
+- **Drag rendering is coalesced to animation frames.** Pointer devices deliver
+  moves faster than the display refreshes, and each drag frame deep-clones the
+  document and rebuilds the whole SVG (~23 ms at 500 elements), so several
+  full rebuilds could run per displayed frame. State is still computed from
+  the latest pointer position and flushed synchronously on pointer-up, so undo
+  entries still match where the pointer stopped.
+- **README no longer calls 0.1.0 a "complete, working MVP"** — it is a
+  functional internal MVP with three unmet definition-of-done criteria. Added
+  measured performance figures, a browser-support matrix documenting degraded
+  save/clipboard behavior, the recent-files limitation, and the document
+  resource limits.
+- Error toasts now show an error's message rather than its stringified form,
+  and a browser save that could only download says "Downloaded…" rather than
+  "Saved…".
+
+### Security
+
 - **High**: fixed unescaped attribute interpolation that let a crafted
   `.flowshark` file break out of SVG attribute context (fill/stroke/text
   colors, element ids, connector caps, label background/border) and inject

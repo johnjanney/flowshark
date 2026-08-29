@@ -47,14 +47,26 @@ export function wrapText(text: string, style: TextStyle, maxWidth: number): stri
       } else {
         line = candidate;
       }
-      // hard-break if the current line alone is too long (very long words)
+      // hard-break if the current line alone is too long (very long words).
+      // The cut point is found by binary search rather than by walking back
+      // one character at a time: a linear scan makes this O(n^2) text
+      // measurements for a long unbroken run, which an untrusted document
+      // (or a paste of machine-generated text) can turn into a hang.
       while (
         measureTextWidth(line.trimEnd(), style) > maxWidth &&
         line.trim().length > 1
       ) {
-        let cut = line.length - 1;
-        while (cut > 1 && measureTextWidth(line.slice(0, cut), style) > maxWidth) {
-          cut--;
+        let lo = 1;
+        let hi = line.length - 1;
+        let cut = 1;
+        while (lo <= hi) {
+          const mid = (lo + hi) >> 1;
+          if (measureTextWidth(line.slice(0, mid), style) <= maxWidth) {
+            cut = mid;
+            lo = mid + 1;
+          } else {
+            hi = mid - 1;
+          }
         }
         out.push(line.slice(0, cut));
         line = line.slice(cut);

@@ -1,4 +1,5 @@
 import type {
+  CanvasSettings,
   Connector,
   Element,
   FlowDoc,
@@ -115,8 +116,22 @@ export class Editor {
     this.notify();
   }
 
+  /**
+   * Mark the document as differing from disk in a way undo/redo can never
+   * take back — used when a document is restored from crash-recovery, whose
+   * content has never been written anywhere. Without this, savedDepth would
+   * still point at the (empty) undo stack, so undoing an edit made after the
+   * restore would silently re-mark the recovered work as "saved" and let it
+   * be discarded without a warning.
+   */
+  markUnsaved(): void {
+    this.savedDepth = null;
+    this.recomputeDirty();
+    this.notify();
+  }
+
   private recomputeDirty(): void {
-    this.dirty = this.savedDepth !== this.undoStack.length;
+    this.dirty = this.savedDepth === null || this.savedDepth !== this.undoStack.length;
   }
 
   /**
@@ -184,6 +199,26 @@ export class Editor {
     this.dirty = false;
     this.pasteCount = 0;
     this.notify();
+  }
+
+  // ----- canvas settings --------------------------------------------------
+
+  /**
+   * Change canvas settings (grid, snapping, background) through the command
+   * system so the edit is undoable, marks the document dirty, becomes
+   * autosave-eligible, and is covered by the unsaved-changes confirmation.
+   * A no-op patch is ignored so toggling a value back and forth doesn't
+   * push empty undo steps.
+   */
+  setCanvas(patch: Partial<CanvasSettings>, label = "Canvas settings"): void {
+    const cur = this.doc.canvas;
+    const changed = (Object.keys(patch) as Array<keyof CanvasSettings>).some(
+      (k) => patch[k] !== undefined && patch[k] !== cur[k]
+    );
+    if (!changed) return;
+    this.apply(label, (doc) => {
+      Object.assign(doc.canvas, patch);
+    });
   }
 
   // ----- lookup ----------------------------------------------------------
@@ -257,6 +292,38 @@ export class Editor {
   deselect(): void {
     this.selection.clear();
     this.notify();
+  }
+
+  /**
+   * All elements in painting (z) order. This is the traversal order used by
+   * keyboard navigation, so what a keyboard user steps through matches what
+   * a sighted user sees stacked on the canvas.
+   */
+  documentOrder(): Element[] {
+    return [...this.doc.shapes, ...this.doc.connectors]
+      .filter((e) => !e.hidden)
+      .sort((a, b) => a.zIndex - b.zIndex);
+  }
+
+  /**
+   * Move the selection to the next/previous element in document order,
+   * wrapping around. Returns the newly selected element, or null when the
+   * document is empty. Used for keyboard-only traversal of the canvas, which
+   * pointer-driven selection alone doesn't provide.
+   */
+  selectAdjacent(delta: 1 | -1): Element | null {
+    const order = this.documentOrder();
+    if (order.length === 0) return null;
+    const current = order.findIndex((e) => this.selection.has(e.id));
+    const next =
+      current === -1
+        ? delta === 1
+          ? 0
+          : order.length - 1
+        : (current + delta + order.length) % order.length;
+    const target = order[next];
+    this.select([target.id]);
+    return target;
   }
 
   selectionBounds(): Rect | null {

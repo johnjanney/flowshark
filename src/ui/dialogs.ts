@@ -17,12 +17,30 @@ interface DialogHandle {
   el: HTMLElement;
 }
 
-export function openDialog(title: string, build: (body: HTMLElement, h: DialogHandle) => void): DialogHandle {
+const FOCUSABLE =
+  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+/**
+ * Open a modal dialog.
+ *
+ * `onDismiss` runs whenever the dialog closes without the caller having
+ * closed it itself — Escape, a backdrop click, or any other cancellation
+ * path. Callers that return a promise MUST use it: otherwise a dismissed
+ * dialog leaves that promise pending forever, and any command awaiting it
+ * (the unsaved-changes prompt, for instance) silently does nothing.
+ */
+export function openDialog(
+  title: string,
+  build: (body: HTMLElement, h: DialogHandle) => void,
+  onDismiss?: () => void
+): DialogHandle {
+  const previouslyFocused = document.activeElement as HTMLElement | null;
   const backdrop = document.createElement("div");
   backdrop.className = "dialog-backdrop";
   const dialog = document.createElement("div");
   dialog.className = "dialog";
   dialog.setAttribute("role", "dialog");
+  dialog.setAttribute("aria-modal", "true");
   dialog.setAttribute("aria-label", title);
   const h2 = document.createElement("h2");
   h2.textContent = title;
@@ -31,15 +49,44 @@ export function openDialog(title: string, build: (body: HTMLElement, h: DialogHa
   dialog.appendChild(body);
   backdrop.appendChild(dialog);
 
+  let closed = false;
+  const teardown = (dismissed: boolean) => {
+    if (closed) return;
+    closed = true;
+    backdrop.remove();
+    previouslyFocused?.focus?.();
+    if (dismissed) onDismiss?.();
+  };
+
   const handle: DialogHandle = {
     el: dialog,
-    close: () => backdrop.remove(),
+    close: () => teardown(false),
   };
   backdrop.addEventListener("mousedown", (e) => {
-    if (e.target === backdrop) handle.close();
+    if (e.target === backdrop) teardown(true);
   });
   backdrop.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") handle.close();
+    if (e.key === "Escape") {
+      teardown(true);
+      return;
+    }
+    if (e.key === "Tab") {
+      // Keep focus inside the modal so keyboard users can't tab out into the
+      // inert canvas behind it.
+      const focusable = [...dialog.querySelectorAll<HTMLElement>(FOCUSABLE)].filter(
+        (el) => el.offsetParent !== null || el === document.activeElement
+      );
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
     e.stopPropagation();
   });
   build(body, handle);
@@ -50,24 +97,31 @@ export function openDialog(title: string, build: (body: HTMLElement, h: DialogHa
 
 export function confirmDialog(title: string, message: string): Promise<boolean> {
   return new Promise((resolve) => {
-    openDialog(title, (body, h) => {
-      const p = document.createElement("p");
-      p.textContent = message;
-      body.appendChild(p);
-      const actions = document.createElement("div");
-      actions.className = "dialog-actions";
-      const cancel = btn("Cancel", () => {
-        h.close();
-        resolve(false);
-      });
-      const ok = btn("Continue", () => {
-        h.close();
-        resolve(true);
-      });
-      ok.classList.add("primary");
-      actions.append(cancel, ok);
-      body.appendChild(actions);
-    });
+    openDialog(
+      title,
+      (body, h) => {
+        const p = document.createElement("p");
+        p.textContent = message;
+        body.appendChild(p);
+        const actions = document.createElement("div");
+        actions.className = "dialog-actions";
+        const cancel = btn("Cancel", () => {
+          h.close();
+          resolve(false);
+        });
+        const ok = btn("Continue", () => {
+          h.close();
+          resolve(true);
+        });
+        ok.classList.add("primary");
+        actions.append(cancel, ok);
+        body.appendChild(actions);
+      },
+      // Escape or a backdrop click means "don't continue" — the same as
+      // Cancel. Without this the promise never settles and the caller
+      // (New / Open / New from template) stalls with no feedback.
+      () => resolve(false)
+    );
   });
 }
 

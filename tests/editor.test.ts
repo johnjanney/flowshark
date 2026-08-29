@@ -249,3 +249,97 @@ describe("style clipboard", () => {
     expect(ed.doc.shapes[1].stroke.width).toBe(4);
   });
 });
+
+describe("canvas settings participate in the command system", () => {
+  let ed: Editor;
+  beforeEach(() => {
+    ed = new Editor();
+    ed.markSaved();
+  });
+
+  it("marks the document dirty", () => {
+    expect(ed.dirty).toBe(false);
+    ed.setCanvas({ background: "#112233" });
+    expect(ed.dirty).toBe(true);
+  });
+
+  it("is undoable and redoable", () => {
+    const before = ed.doc.canvas.gridSize;
+    ed.setCanvas({ gridSize: 40 });
+    expect(ed.doc.canvas.gridSize).toBe(40);
+    expect(ed.canUndo()).toBe(true);
+    ed.undo();
+    expect(ed.doc.canvas.gridSize).toBe(before);
+    ed.redo();
+    expect(ed.doc.canvas.gridSize).toBe(40);
+  });
+
+  it("returns to a clean state when undone back to the saved point", () => {
+    ed.setCanvas({ snapToGrid: !ed.doc.canvas.snapToGrid });
+    expect(ed.dirty).toBe(true);
+    ed.undo();
+    expect(ed.dirty).toBe(false);
+  });
+
+  it("ignores a no-op change so it does not push empty undo steps", () => {
+    ed.setCanvas({ gridVisible: ed.doc.canvas.gridVisible });
+    expect(ed.canUndo()).toBe(false);
+    expect(ed.dirty).toBe(false);
+  });
+
+  it("survives serialization as part of the document", () => {
+    ed.setCanvas({ background: "#0a0a0a", gridSize: 33 });
+    expect(ed.doc.canvas.background).toBe("#0a0a0a");
+    expect(ed.doc.canvas.gridSize).toBe(33);
+  });
+});
+
+describe("recovered documents stay unsaved", () => {
+  it("cannot be marked clean again by undoing an edit made after recovery", () => {
+    const ed = new Editor();
+    ed.markUnsaved();
+    expect(ed.dirty).toBe(true);
+    ed.apply("Add", (doc) => doc.shapes.push(newShape("process", 0, 0, 1)));
+    expect(ed.dirty).toBe(true);
+    ed.undo();
+    // Before the fix this reported false: savedDepth still pointed at the
+    // empty undo stack, so the never-saved recovered work looked saved.
+    expect(ed.dirty).toBe(true);
+  });
+
+  it("becomes clean once actually saved", () => {
+    const ed = new Editor();
+    ed.markUnsaved();
+    ed.markSaved();
+    expect(ed.dirty).toBe(false);
+  });
+});
+
+describe("keyboard traversal of the diagram", () => {
+  it("steps forward and backward through elements in painting order", () => {
+    const ed = new Editor();
+    const a = addShape(ed);
+    const b = addShape(ed);
+    const c = addShape(ed);
+    expect(ed.selectAdjacent(1)!.id).toBe(a.id);
+    expect(ed.selectAdjacent(1)!.id).toBe(b.id);
+    expect(ed.selectAdjacent(1)!.id).toBe(c.id);
+    expect(ed.selectAdjacent(1)!.id).toBe(a.id); // wraps
+    expect(ed.selectAdjacent(-1)!.id).toBe(c.id);
+  });
+
+  it("includes connectors and skips hidden elements", () => {
+    const ed = new Editor();
+    const a = addShape(ed);
+    const b = addShape(ed);
+    b.hidden = true;
+    const conn = newConnector("straight", attachedEnd(a.id), attachedEnd(b.id), 9);
+    ed.doc.connectors.push(conn);
+    const ids = ed.documentOrder().map((e) => e.id);
+    expect(ids).toEqual([a.id, conn.id]);
+  });
+
+  it("returns null for an empty document", () => {
+    expect(new Editor().selectAdjacent(1)).toBeNull();
+  });
+});

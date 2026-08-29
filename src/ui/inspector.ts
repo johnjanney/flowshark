@@ -3,6 +3,7 @@ import type { CanvasView } from "../canvas/view";
 import type { CapStyle, Connector, ConnectorType, LineStyle, Shape } from "../model/types";
 import { CAP_STYLES, CONNECTOR_TYPES } from "../connectors/routing";
 import { newLabel } from "../model/defaults";
+import { clampGridSize, clampSnapTolerance } from "../model/limits";
 
 const FONTS = [
   "Segoe UI, system-ui, sans-serif",
@@ -138,8 +139,7 @@ export function buildInspector(
       row(
         "Grid size",
         numberInput(doc.canvas.gridSize, (v) => {
-          doc.canvas.gridSize = Math.max(2, v);
-          editor.notify();
+          editor.setCanvas({ gridSize: clampGridSize(v) }, "Grid size");
           view.refresh();
         }, { min: 2, max: 200 })
       )
@@ -148,8 +148,7 @@ export function buildInspector(
       row(
         "Show grid",
         checkbox(doc.canvas.gridVisible, (v) => {
-          doc.canvas.gridVisible = v;
-          editor.notify();
+          editor.setCanvas({ gridVisible: v }, v ? "Show grid" : "Hide grid");
           view.refresh();
         })
       )
@@ -158,8 +157,7 @@ export function buildInspector(
       row(
         "Snap to grid",
         checkbox(doc.canvas.snapToGrid, (v) => {
-          doc.canvas.snapToGrid = v;
-          editor.notify();
+          editor.setCanvas({ snapToGrid: v }, "Snap to grid");
         })
       )
     );
@@ -167,8 +165,7 @@ export function buildInspector(
       row(
         "Snap to elements",
         checkbox(doc.canvas.snapToElement, (v) => {
-          doc.canvas.snapToElement = v;
-          editor.notify();
+          editor.setCanvas({ snapToElement: v }, "Snap to elements");
         })
       )
     );
@@ -176,8 +173,7 @@ export function buildInspector(
       row(
         "Snap tolerance",
         numberInput(doc.canvas.snapTolerance, (v) => {
-          doc.canvas.snapTolerance = Math.max(1, v);
-          editor.notify();
+          editor.setCanvas({ snapTolerance: clampSnapTolerance(v) }, "Snap tolerance");
         }, { min: 1, max: 30 })
       )
     );
@@ -185,8 +181,7 @@ export function buildInspector(
       row(
         "Background",
         colorInput(doc.canvas.background, (v) => {
-          doc.canvas.background = v;
-          editor.notify();
+          editor.setCanvas({ background: v }, "Background colour");
           view.refresh();
         })
       )

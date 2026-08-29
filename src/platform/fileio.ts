@@ -225,24 +225,77 @@ export interface RecentFile {
 
 const RECENT_KEY = "flowshark.recentFiles";
 
+/** True if a parsed localStorage entry is a usable recent-file record. */
+function isRecentFile(v: unknown): v is RecentFile {
+  return (
+    typeof v === "object" &&
+    v !== null &&
+    typeof (v as RecentFile).path === "string" &&
+    (v as RecentFile).path.length > 0 &&
+    typeof (v as RecentFile).name === "string"
+  );
+}
+
 export function getRecentFiles(): RecentFile[] {
   try {
     const raw = localStorage.getItem(RECENT_KEY);
     if (!raw) return [];
-    const list = JSON.parse(raw);
-    return Array.isArray(list) ? list.slice(0, 10) : [];
+    const list: unknown = JSON.parse(raw);
+    if (!Array.isArray(list)) return [];
+    // localStorage is shared with anything else on the origin and survives
+    // downgrades, so entries are validated rather than trusted: a malformed
+    // record would otherwise render as an "undefined" menu item that reads a
+    // bogus path when clicked.
+    return list
+      .filter(isRecentFile)
+      .map((r) => ({
+        path: r.path,
+        name: r.name,
+        when: typeof r.when === "string" ? r.when : "",
+      }))
+      .slice(0, 10);
   } catch {
     return [];
   }
 }
 
+/**
+ * Record a file in the recent list. Best-effort: a full or disabled
+ * localStorage must not turn an otherwise successful save into a failure,
+ * so storage errors are swallowed here rather than propagating to the
+ * caller's save/open error handling.
+ */
 export function addRecentFile(path: string | null, name: string): void {
   if (!path || path.startsWith("handle:")) return; // browser handles aren't persistable
-  const list = getRecentFiles().filter((r) => r.path !== path);
-  list.unshift({ path, name, when: new Date().toISOString() });
-  localStorage.setItem(RECENT_KEY, JSON.stringify(list.slice(0, 10)));
+  try {
+    const list = getRecentFiles().filter((r) => r.path !== path);
+    list.unshift({ path, name, when: new Date().toISOString() });
+    localStorage.setItem(RECENT_KEY, JSON.stringify(list.slice(0, 10)));
+  } catch {
+    // recent-files history is a convenience, never a correctness requirement
+  }
 }
 
+/** Remove a path from the recent list (e.g. it is gone or unreadable). */
+export function removeRecentFile(path: string): void {
+  try {
+    const list = getRecentFiles().filter((r) => r.path !== path);
+    localStorage.setItem(RECENT_KEY, JSON.stringify(list));
+  } catch {
+    // ignore
+  }
+}
+
+/**
+ * Open a previously used path without a file dialog.
+ *
+ * The desktop build's static filesystem scope is `$DOCUMENT/**` (see
+ * `src-tauri/capabilities/default.json`). A path picked through the open
+ * dialog gets a *runtime* scope grant that does not survive a restart, so a
+ * recent file stored outside Documents is readable in the session that
+ * opened it and not after a relaunch. Callers must handle the rejection by
+ * asking the user to re-pick the file — see Actions.openRecent.
+ */
 export async function openRecentFile(path: string): Promise<OpenedFile | null> {
   if (!isTauri()) return null;
   const { readTextFile } = await import("@tauri-apps/plugin-fs");

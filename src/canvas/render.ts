@@ -8,6 +8,7 @@ import {
   shapeBounds,
   unionRects,
 } from "../core/geometry";
+import { LIMITS } from "../model/limits";
 
 export function dashArray(style: "solid" | "dashed" | "dotted", width: number): string {
   switch (style) {
@@ -197,6 +198,31 @@ export function contentBounds(doc: FlowDoc, onlyIds?: Set<string>): Rect {
   return unionRects(rects);
 }
 
+/**
+ * One-sentence description of a diagram's content, used as the exported
+ * SVG's accessible description. Lists the first few labelled shapes so the
+ * description says something about *this* diagram rather than just counting.
+ */
+function summarizeContent(
+  doc: FlowDoc,
+  ids: Set<string> | undefined,
+  shapeCount: number,
+  connectorCount: number
+): string {
+  const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+  const labels = doc.shapes
+    .filter((s) => (!ids || ids.has(s.id)) && !s.hidden && s.text.trim())
+    .slice(0, 8)
+    .map((s) => s.text.trim().replace(/\s+/g, " ").slice(0, 40));
+  const head = `Flowchart with ${plural(shapeCount, "shape")} and ${plural(
+    connectorCount,
+    "connector"
+  )}.`;
+  if (labels.length === 0) return head;
+  const more = shapeCount > labels.length ? ", and others" : "";
+  return `${head} Labelled shapes: ${labels.join("; ")}${more}.`;
+}
+
 export interface ExportSVGOptions {
   /** export only these element ids (default: everything) */
   ids?: Set<string>;
@@ -207,8 +233,22 @@ export interface ExportSVGOptions {
   scale?: number;
 }
 
+/**
+ * Grid lines covering `area`. The line count is a function of area size over
+ * grid size, and `area` can come from document content — a shape parked at a
+ * far-away coordinate produces a bounding box millions of units wide, which
+ * at a 2-unit grid would be millions of path segments. The step is widened
+ * until the grid fits LIMITS.maxGridLines, so a hostile or accidental
+ * document degrades to a coarser grid instead of hanging the renderer.
+ */
 export function gridSVG(doc: FlowDoc, area: Rect): string {
-  const size = doc.canvas.gridSize;
+  let size = doc.canvas.gridSize;
+  const needed = (step: number) => area.w / step + area.h / step + 2;
+  if (!Number.isFinite(size) || size <= 0) size = 20;
+  if (needed(size) > LIMITS.maxGridLines) {
+    size = (area.w + area.h) / Math.max(1, LIMITS.maxGridLines - 2);
+  }
+  if (!Number.isFinite(size) || size <= 0) return "";
   let lines = "";
   const x0 = Math.floor(area.x / size) * size;
   const y0 = Math.floor(area.y / size) * size;
@@ -241,10 +281,24 @@ export function exportSVG(
   if (opts.includeGrid) inner += gridSVG(doc, bounds);
   inner += docContentSVG(doc, true, opts.ids);
 
+  // An exported diagram is a standalone document that someone may open in a
+  // browser or embed in a page, so give it an accessible name and description
+  // (brief §8.14, "alt text for exported diagrams"). role="img" plus
+  // aria-labelledby is what assistive technology actually reads.
+  const shapeCount = opts.ids
+    ? doc.shapes.filter((s) => opts.ids!.has(s.id) && !s.hidden).length
+    : doc.shapes.filter((s) => !s.hidden).length;
+  const connectorCount = opts.ids
+    ? doc.connectors.filter((c) => opts.ids!.has(c.id) && !c.hidden).length
+    : doc.connectors.filter((c) => !c.hidden).length;
+  const described = summarizeContent(doc, opts.ids, shapeCount, connectorCount);
+
   const svg =
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" ` +
-    `viewBox="${fmt(bounds.x)} ${fmt(bounds.y)} ${fmt(bounds.w)} ${fmt(bounds.h)}">` +
-    `<title>${escapeXML(doc.title)}</title>` +
+    `viewBox="${fmt(bounds.x)} ${fmt(bounds.y)} ${fmt(bounds.w)} ${fmt(bounds.h)}" ` +
+    `role="img" aria-labelledby="fs-title fs-desc">` +
+    `<title id="fs-title">${escapeXML(doc.title)}</title>` +
+    `<desc id="fs-desc">${escapeXML(described)}</desc>` +
     inner +
     `</svg>`;
   return { svg, width, height, bounds };

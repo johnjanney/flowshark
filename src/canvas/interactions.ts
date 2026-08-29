@@ -67,6 +67,17 @@ export class Interactions {
   private drag: DragState = idleDrag();
   private spaceDown = false;
   private textEditor: HTMLElement | null = null;
+  /**
+   * Drag rendering is coalesced to animation frames. Pointer devices deliver
+   * moves faster than the display refreshes (120–1000 Hz mice are common), and
+   * each drag frame deep-clones the document and rebuilds the whole SVG — at
+   * 500 elements that is ~23 ms median, so running it more than once per frame
+   * is pure waste. State is still computed from the latest pointer position;
+   * only the render is deferred, and pointerup flushes it before committing so
+   * the undo entry always matches where the pointer actually stopped.
+   */
+  private frameHandle: number | null = null;
+  private frameWork: (() => void) | null = null;
   onToolChange: (() => void) | null = null;
   onCursorMove: ((p: Point) => void) | null = null;
   /** called for double-click on empty canvas etc. */
@@ -108,6 +119,29 @@ export class Interactions {
         if (this.tool !== "pan") this.view.host.classList.remove("tool-pan");
       }
     });
+  }
+
+  /** Queue drag work for the next animation frame, replacing any pending work. */
+  private scheduleFrame(work: () => void): void {
+    this.frameWork = work;
+    if (this.frameHandle !== null) return;
+    this.frameHandle = requestAnimationFrame(() => {
+      this.frameHandle = null;
+      const fn = this.frameWork;
+      this.frameWork = null;
+      fn?.();
+    });
+  }
+
+  /** Run any queued drag work immediately (before committing or cancelling). */
+  private flushFrame(): void {
+    if (this.frameHandle !== null) {
+      cancelAnimationFrame(this.frameHandle);
+      this.frameHandle = null;
+    }
+    const fn = this.frameWork;
+    this.frameWork = null;
+    fn?.();
   }
 
   setTool(tool: Tool): void {
@@ -215,6 +249,7 @@ export class Interactions {
   }
 
   private pointerDown(e: PointerEvent): void {
+    this.flushFrame();
     this.view.svg.setPointerCapture(e.pointerId);
     this.view.svg.focus({ preventScroll: true });
     this.commitTextEdit();
@@ -426,12 +461,14 @@ export class Interactions {
       case "maybe-drag": {
         if (Math.hypot(dxc, dyc) > 3) {
           this.drag.mode = "move";
-          this.applyMoveDrag(dxc, dyc, e.altKey);
+          this.drag.moved = true;
+          this.scheduleFrame(() => this.applyMoveDrag(dxc, dyc, e.altKey));
         }
         break;
       }
       case "move": {
-        this.applyMoveDrag(dxc, dyc, e.altKey);
+        this.drag.moved = true;
+        this.scheduleFrame(() => this.applyMoveDrag(dxc, dyc, e.altKey));
         break;
       }
       case "marquee": {
@@ -447,53 +484,7 @@ export class Interactions {
       }
       case "resize": {
         this.drag.moved = true;
-        ed.restorePendingPreview();
-        const s = ed.shape(this.drag.origShape!.id);
-        if (!s) break;
-        const orig = this.drag.origShape!;
-        const zoom = ed.viewport.zoom;
-        let dx = dxc / zoom;
-        let dy = dyc / zoom;
-        const h = this.drag.handle!;
-        const min = 12;
-        let { x, y, w, h: hh } = orig;
-        if (h.includes("e")) w = Math.max(min, orig.w + dx);
-        if (h.includes("s")) hh = Math.max(min, orig.h + dy);
-        if (h.includes("w")) {
-          w = Math.max(min, orig.w - dx);
-          x = orig.x + orig.w - w;
-        }
-        if (h.includes("n")) {
-          hh = Math.max(min, orig.h - dy);
-          y = orig.y + orig.h - hh;
-        }
-        if (e.shiftKey && orig.w > 0 && orig.h > 0) {
-          const ratio = orig.w / orig.h;
-          if (w / hh > ratio) w = hh * ratio;
-          else hh = w / ratio;
-          if (h.includes("w")) x = orig.x + orig.w - w;
-          if (h.includes("n")) y = orig.y + orig.h - hh;
-        }
-        if (!e.altKey && ed.doc.canvas.snapToGrid) {
-          const g = ed.doc.canvas.gridSize;
-          if (h.includes("e")) w = Math.max(min, Math.round((x + w) / g) * g - x);
-          if (h.includes("s")) hh = Math.max(min, Math.round((y + hh) / g) * g - y);
-          if (h.includes("w")) {
-            const nx = Math.round(x / g) * g;
-            w = Math.max(min, w + (x - nx));
-            x = nx;
-          }
-          if (h.includes("n")) {
-            const ny = Math.round(y / g) * g;
-            hh = Math.max(min, hh + (y - ny));
-            y = ny;
-          }
-        }
-        s.x = x;
-        s.y = y;
-        s.w = w;
-        s.h = hh;
-        this.view.refresh();
+        this.scheduleFrame(() => this.applyResizeDrag(dxc, dyc, e.shiftKey, e.altKey));
         break;
       }
       case "connector-new": {
@@ -507,7 +498,7 @@ export class Interactions {
         const from = this.connectorStartPoint(docPt);
         const zoom = ed.viewport.zoom;
         this.view.connectorPreview = `<line x1="${from.x}" y1="${from.y}" x2="${docPt.x}" y2="${docPt.y}" stroke="#2563eb" stroke-width="${1.5 / zoom}" stroke-dasharray="${5 / zoom} ${4 / zoom}" pointer-events="none"/>`;
-        this.view.refreshOverlay();
+        this.scheduleFrame(() => this.view.refreshOverlay());
         break;
       }
       case "connector-end": {
@@ -530,21 +521,78 @@ export class Interactions {
           end.y = p.y;
         }
         this.view.hoverShapeId = overShape;
-        this.view.refresh();
+        this.scheduleFrame(() => this.view.refresh());
         break;
       }
       case "bend": {
         this.drag.moved = true;
         const c = ed.connector(this.drag.connId!);
         if (!c || this.drag.bendIndex === undefined) break;
-        const p = snapPoint(ed.doc, docPt, e.altKey);
-        c.points[this.drag.bendIndex] = p;
-        this.view.refresh();
+        c.points[this.drag.bendIndex] = snapPoint(ed.doc, docPt, e.altKey);
+        this.scheduleFrame(() => this.view.refresh());
         break;
       }
       default:
         break;
     }
+  }
+
+  /** Re-apply a resize drag from the pristine pre-drag document. */
+  private applyResizeDrag(
+    dxc: number,
+    dyc: number,
+    keepRatio: boolean,
+    disableSnap: boolean
+  ): void {
+    const ed = this.editor;
+    ed.restorePendingPreview();
+    const orig = this.drag.origShape;
+    if (!orig) return;
+    const s = ed.shape(orig.id);
+    if (!s) return;
+    const zoom = ed.viewport.zoom;
+    const dx = dxc / zoom;
+    const dy = dyc / zoom;
+    const h = this.drag.handle!;
+    const min = 12;
+    let { x, y, w, h: hh } = orig;
+    if (h.includes("e")) w = Math.max(min, orig.w + dx);
+    if (h.includes("s")) hh = Math.max(min, orig.h + dy);
+    if (h.includes("w")) {
+      w = Math.max(min, orig.w - dx);
+      x = orig.x + orig.w - w;
+    }
+    if (h.includes("n")) {
+      hh = Math.max(min, orig.h - dy);
+      y = orig.y + orig.h - hh;
+    }
+    if (keepRatio && orig.w > 0 && orig.h > 0) {
+      const ratio = orig.w / orig.h;
+      if (w / hh > ratio) w = hh * ratio;
+      else hh = w / ratio;
+      if (h.includes("w")) x = orig.x + orig.w - w;
+      if (h.includes("n")) y = orig.y + orig.h - hh;
+    }
+    if (!disableSnap && ed.doc.canvas.snapToGrid) {
+      const g = ed.doc.canvas.gridSize;
+      if (h.includes("e")) w = Math.max(min, Math.round((x + w) / g) * g - x);
+      if (h.includes("s")) hh = Math.max(min, Math.round((y + hh) / g) * g - y);
+      if (h.includes("w")) {
+        const nx = Math.round(x / g) * g;
+        w = Math.max(min, w + (x - nx));
+        x = nx;
+      }
+      if (h.includes("n")) {
+        const ny = Math.round(y / g) * g;
+        hh = Math.max(min, hh + (y - ny));
+        y = ny;
+      }
+    }
+    s.x = x;
+    s.y = y;
+    s.w = w;
+    s.h = hh;
+    this.view.refresh();
   }
 
   /** Re-apply a move drag from the pristine pre-drag document. */
@@ -595,6 +643,10 @@ export class Interactions {
 
   private pointerUp(e: PointerEvent): void {
     const ed = this.editor;
+    // Render work queued for the next animation frame still owns the final
+    // model state of the drag, so run it now — committing first would push an
+    // undo entry for a position one frame behind the pointer.
+    this.flushFrame();
     const docPt = this.view.clientToDoc(e.clientX, e.clientY);
     const drag = this.drag;
     this.drag = idleDrag();
