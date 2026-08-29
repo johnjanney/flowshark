@@ -309,3 +309,155 @@ Also manually verified via scripted Chromium sessions (not just asserted):
 the Line and Arrow shapes render correctly (screenshot inspected), and the
 new Connectors panel category correctly arms the connector tool and
 produces a working connector end-to-end.
+
+---
+
+# Addendum: second pass over CODEX-REVIEW.md
+
+Addendum date: 2026-08-29
+
+A follow-up pass re-read [CODEX-REVIEW.md](CODEX-REVIEW.md) line by line
+against the response above, looking specifically for findings the first
+response did not act on. Four were found. All four are now closed; the
+current state was re-verified end to end (67/67 unit tests, typecheck,
+production build, 16/16 smoke-test steps including a byte-valid PDF).
+
+| Previously unaddressed | Severity | Outcome |
+| --- | --- | --- |
+| Rust/Tauri dependency audit never performed | Medium (unknown risk) | Run: 0 vulnerabilities; both audits added to CI |
+| Smoke-test *documentation* drift (review §3.5) | Low | README now documents the one-time Playwright step |
+| ARM performance / accessibility claims kept without evidence (review §3.3 + conclusion 5) | Low | Claims qualified; release blockers listed explicitly |
+| Functional gaps not marked as release blockers (review §3.4) | Low | New "Release readiness" section in README |
+
+Two further issues surfaced while verifying, and were fixed in the same
+pass:
+
+| Found while verifying | Severity | Outcome |
+| --- | --- | --- |
+| `dompurify` 3.4.11 (shipped in `dist/` via jsPDF) has two XSS advisories | Moderate | Bumped to 3.4.14 |
+| Selection-overlay `innerHTML` path still interpolated ids unescaped | Defense in depth | Escaped |
+
+## 1. Rust/Tauri dependency audit (review, "Verification Performed")
+
+**What the review said:** "`cargo` is not installed in this shell, so I
+could not run a Rust/Tauri dependency audit." The first response did not
+mention this at all, so the Rust side of the dependency tree — the half
+that runs *outside* the webview sandbox, with full OS privileges — had
+never been audited by anyone.
+
+**Now done.** `cargo audit` against `src-tauri/Cargo.lock` (432 crate
+dependencies, advisory DB of 1,226 advisories):
+
+- **0 vulnerabilities.**
+- 17 warnings, none with a fix available at this project's level:
+  - 11 unmaintained/unsound warnings for the GTK3 stack (`gtk`, `gdk*`,
+    `atk*`, `glib`, `proc-macro-error`). `cargo tree -i <crate> --target
+    aarch64-pc-windows-msvc` returns "nothing to print" for every one of
+    them — they are Linux-only and are not compiled into the Windows
+    ARM64/x64 builds at all. They are in `Cargo.lock` only because a
+    lockfile covers every platform.
+  - 6 unmaintained `unic-*` crates, which *do* apply to Windows, reaching
+    the build through `tauri-utils` → `urlpattern`. "Unmaintained" is not
+    a vulnerability and there is no upgrade to take; tracked as **Q19**.
+
+**Kept closed:** a `Dependency audit (npm + cargo)` job now runs
+`npm audit --omit=dev --audit-level=moderate` and `cargo audit` on every
+push and PR (`.github/workflows/ci.yml`), and both commands are documented
+in README. A one-time audit answers the question once; the CI job is what
+keeps the answer true — which matters, because running it immediately
+surfaced the npm drift below.
+
+## 2. The npm audit result had drifted since the review
+
+The review recorded "`npm audit --omit=dev` reported 0 production npm
+vulnerabilities". That is no longer true: `dompurify` 3.4.11 carries two
+moderate DOMPurify XSS advisories
+([GHSA-c2j3-45gr-mqc4](https://github.com/advisories/GHSA-c2j3-45gr-mqc4),
+[GHSA-55q2-fjhq-7xh7](https://github.com/advisories/GHSA-55q2-fjhq-7xh7)).
+
+It arrives as an *optional* dependency of jsPDF, which is easy to wave off
+as "not really shipped" — but it is: a production `vite build` emits
+`dist/assets/purify.es-*.js`, a lazily-loaded chunk of the app bundle.
+Bumped to 3.4.14 (lockfile only, no source change). `npm audit --omit=dev`
+is clean again and PDF export was re-verified by the smoke test.
+
+## 3. Smoke-test documentation drift (review §3.5)
+
+The first response fixed `scripts/smoke.mjs` itself (dropping the
+hardcoded `/opt/pw-browsers/chromium` default) but not the instructions
+the review actually cited. README still listed a bare
+`node scripts/smoke.mjs`, which on a fresh clone fails with Playwright's
+"Executable doesn't exist … run `npx playwright install`" error — the same
+end-user symptom the review reported, from a different cause.
+
+README's dev section now lists `npx playwright install chromium` as the
+one-time step and explains that `CHROMIUM_PATH` is only for pointing at a
+specific binary. (Reproduced here: with no `CHROMIUM_PATH`, this
+environment's smoke test fails exactly that way, because its pre-installed
+Chromium build doesn't match what the pinned Playwright expects; with
+`CHROMIUM_PATH` set, all 16 steps pass.)
+
+## 4. Unevidenced ARM/accessibility claims (review §3.3 and conclusion 5)
+
+The review's closing recommendation was to "validate performance and
+accessibility on real Windows ARM hardware **before keeping the current
+marketing claims**." The first response logged the validation gaps as Q16
+and Q17 but left the claims themselves untouched — README still opened
+with "optimized for Windows 11 on ARM" and listed "accessible labeled
+controls" as a shipped feature. Logging a gap in an internal tracking file
+does not qualify a claim made on the front page.
+
+README now states the ARM targeting as what it actually is (a native-ARM64
+WebView2 shell with no emulation layer and CI-built ARM64 installers) and
+says plainly that frame-time and large-document performance are unmeasured
+on real hardware; the accessibility bullet now says ARIA-labeled controls
+and focus-visible styles, not validated by an audit.
+
+## 5. Functional gaps not marked as release blockers (review §3.4)
+
+The review asked that the known gaps "remain explicit release blockers if
+the goal is 'complete MVP per brief'". They were listed in
+OPENQUESTIONS.md, but nothing distinguished a release blocker from a
+deferred nice-to-have. README now has a **Release readiness** section that
+names the three blockers (unsigned installers Q4, unmeasured ARM
+performance Q16, no accessibility audit Q17) and separately lists what is
+knowingly deferred (Q9–Q12, Q18).
+
+## 6. One remaining unescaped `innerHTML` path (defense in depth)
+
+While re-verifying Finding 1, one `innerHTML` path was found that the
+first pass missed: `CanvasView.refreshOverlay()`
+(`src/canvas/view.ts`) builds the selection/handle/anchor overlay by
+string concatenation and interpolated `s.id` / `c.id` into `data-*`
+attributes without escaping.
+
+This was **not exploitable**: ids are constrained to `[A-Za-z0-9_-]` by
+`isSafeId()` at the parse boundary, and every document entry point
+(File → Open, recent files, autosave recovery) goes through `parseDoc()`.
+But it contradicted the two-layer principle stated in Finding 1 above —
+"escaping closes the vulnerability unconditionally regardless of upstream
+validation" — by being the one output site still relying on the upstream
+layer. Now escaped, so no `innerHTML` sink in the app trusts its input.
+
+The remaining `innerHTML` uses were re-reviewed and are safe: they build
+markup from compile-time constants (`toolbar.ts`, `shapePanel.ts`,
+`inspector.ts`, `dialogs.ts`), from app-generated SVG that is already
+escaped (`export.ts`, the template thumbnails), or from a locally
+generated timestamp (`main.ts`'s recovery banner, via
+`Date.toLocaleString()`).
+
+## Verification
+
+```
+npm audit --omit=dev   → 0 vulnerabilities
+cargo audit            → 0 vulnerabilities (17 unmaintained/unsound warnings, see Q19)
+npm run typecheck      → clean
+npm test               → 67/67 passed
+npm run build          → clean production build
+node scripts/smoke.mjs → 16/16 steps passed, byte-valid PDF export
+```
+
+Unchanged from the first response: the Tauri filesystem-scope narrowing
+still needs to be exercised on real Windows ARM hardware (save / open /
+export / import / recent files), and Q16/Q17 still need hardware and
+assistive tech this environment does not have.

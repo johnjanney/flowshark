@@ -4,9 +4,15 @@
 
 FlowShark is a lightweight but comprehensive diagram editor for building
 professional flowcharts — business process maps, decision trees, system flows,
-swimlane diagrams, and more. It is optimized for Windows 11 on ARM (with x64
-builds from the same codebase) and runs in any modern browser during
-development.
+swimlane diagrams, and more. It targets Windows 11 on ARM (with x64 builds
+from the same codebase) and runs in any modern browser during development.
+
+**Status: 0.1.0 MVP, not yet a release candidate.** The ARM targeting is
+architectural — a native-ARM64 WebView2 shell, no emulation layer, no
+Electron runtime — and the ARM64 installer is built in CI, but frame-time
+and large-document performance have not yet been measured on real Windows
+on ARM hardware, and no formal accessibility audit has been done. See
+[Release readiness](#release-readiness) below.
 
 ![FlowShark dark mode](docs/images/flowshark-dark.png)
 
@@ -42,7 +48,8 @@ development.
   swimlane, software logic, customer journey, approval workflow, incident
   response, sales funnel, project workflow.
 - **Polish** — dark mode, zoom/pan/fit, infinite canvas, touch-friendly
-  pointer events, accessible labeled controls.
+  pointer events, ARIA-labeled controls and focus-visible styles (not yet
+  validated by a formal accessibility audit — see Q17).
 
 See [INSTRUCTIONS.md](INSTRUCTIONS.md) for the full user guide, and
 [PROJECTBRIEF.md](PROJECTBRIEF.md) for the original product brief.
@@ -83,11 +90,25 @@ npm run dev          # browser dev server at http://localhost:1420
 npm test             # unit tests (Vitest)
 npm run typecheck    # TypeScript
 npm run build        # typecheck + production bundle to dist/
-node scripts/smoke.mjs   # end-to-end smoke test in headless Chromium (build first)
+
+npx playwright install chromium   # one-time, for the smoke test
+node scripts/smoke.mjs            # end-to-end smoke test (run npm run build first)
 ```
+
+The smoke test uses Playwright's own managed Chromium, so it needs the
+one-time `npx playwright install chromium` above. Set `CHROMIUM_PATH` only
+if you need to point it at a specific Chromium binary (for example a CI
+image with browsers pre-installed at a fixed path).
 
 The full editor runs in a plain browser during development — file dialogs
 fall back to the File System Access API or downloads.
+
+Dependency audits (also run in CI on every push/PR):
+
+```bash
+npm audit --omit=dev                    # shipped npm dependencies
+cargo audit -f src-tauri/Cargo.lock     # Rust/Tauri dependencies (cargo install cargo-audit)
+```
 
 ## Building for Windows on ARM
 
@@ -103,10 +124,33 @@ The NSIS installer lands in
 `src-tauri/target/aarch64-pc-windows-msvc/release/bundle/nsis/`.
 For x64: substitute `x86_64-pc-windows-msvc`.
 
-CI (`.github/workflows/ci.yml`) runs typecheck, unit tests, and the Chromium
-smoke test on every push/PR, and builds Windows ARM64 + x64 installers on
+CI (`.github/workflows/ci.yml`) runs typecheck, unit tests, the Chromium
+smoke test, and the npm + cargo dependency audits on every push/PR, and builds Windows ARM64 + x64 installers on
 pushes to `main`, tags, and manual dispatch. Tagging `v*` attaches installers
 to a draft GitHub release.
+
+## Release readiness
+
+FlowShark 0.1.0 is a complete, working MVP and is fine for internal use and
+demos. Before distributing it to outside users, these remain open — they are
+tracked in [OPENQUESTIONS.md](OPENQUESTIONS.md) and should be treated as
+release blockers rather than nice-to-haves:
+
+| Blocker | Why it blocks a public release | Tracked as |
+| --- | --- | --- |
+| Installers are unsigned | SmartScreen warnings; users get no provenance guarantee | Q4 |
+| Windows-on-ARM performance unmeasured | The brief targets hundreds of elements; the renderer rebuilds SVG on each change and undo uses full-document snapshots. Both are deliberate MVP tradeoffs, but unprofiled on real hardware | Q16 |
+| No accessibility audit | Controls are ARIA-labeled and keyboard-driven, but no screen-reader pass or contrast check has been run | Q17 |
+
+These brief items are knowingly deferred rather than blocking, and are
+tracked the same way: connector routing around obstacles (Q10),
+equal-spacing snap guides (Q9), true swimlane/phase containment (Q12), an
+on-canvas rotation handle (Q11), and reinstating SVG import behind a real
+sanitizer (Q18).
+
+Security fixes from the independent audit are applied and covered by
+regression tests — see
+[CODEX-REVIEW-RESPONSE.md](CODEX-REVIEW-RESPONSE.md).
 
 ## Project documents
 

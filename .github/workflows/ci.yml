@@ -34,6 +34,26 @@ jobs:
           path: smoke-artifacts/
           if-no-files-found: ignore
 
+  audit:
+    name: Dependency audit (npm + cargo)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Audit shipped npm dependencies
+        run: npm audit --omit=dev --audit-level=moderate
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+      - name: Audit Rust/Tauri dependencies
+        # Fails on advisories with a fix available; unmaintained/unsound
+        # warnings (the GTK stack, which is Linux-only and never compiled
+        # into the Windows builds) are reported but do not fail the job.
+        run: cargo audit -f src-tauri/Cargo.lock
+
   build-windows:
     name: Build Windows ${{ matrix.arch }}
     # Only build installers for tags, manual runs, and pushes to main

@@ -131,8 +131,14 @@ another selection.
 
 **Import**:
 
-- File → Import image… places PNG/JPEG/WebP/SVG files as image objects.
-- Paste an image from the clipboard directly onto the canvas (**Ctrl+V**).
+- File → Import image… places PNG, JPEG, and WebP files as image objects.
+- Paste an image from the clipboard directly onto the canvas (**Ctrl+V**) —
+  PNG, JPEG, GIF, WebP, and BMP are accepted.
+- **SVG files cannot be imported.** SVG can contain scripts and external
+  references, and FlowShark does not yet bundle a sanitizer that can make
+  arbitrary SVG safe to embed, so it is excluded from both the import
+  dialog and clipboard paste (see OPENQUESTIONS.md Q18). SVG *export* is
+  unaffected.
 
 ## 10. Keyboard shortcuts
 

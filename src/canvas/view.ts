@@ -4,6 +4,7 @@ import type { Guide } from "../core/snap";
 import { docContentSVG, gridSVG } from "./render";
 import { routeConnector, shapeAnchorPoints } from "../connectors/routing";
 import { shapeBounds } from "../core/geometry";
+import { escapeXML } from "../core/text";
 
 const SVGNS = "http://www.w3.org/2000/svg";
 
@@ -185,7 +186,7 @@ export class CanvasView {
         const s = ed.shape(hoverId);
         if (s && !s.locked) {
           for (const a of shapeAnchorPoints(s)) {
-            out += `<circle data-anchor="${a.id}" data-anchor-shape="${s.id}" cx="${a.point.x}" cy="${a.point.y}" r="${px(4)}" fill="#ffffff" stroke="#2563eb" stroke-width="${px(1.5)}" style="cursor:crosshair"/>`;
+            out += `<circle data-anchor="${escapeXML(a.id)}" data-anchor-shape="${escapeXML(s.id)}" cx="${a.point.x}" cy="${a.point.y}" r="${px(4)}" fill="#ffffff" stroke="#2563eb" stroke-width="${px(1.5)}" style="cursor:crosshair"/>`;
           }
         }
       }
@@ -219,11 +220,11 @@ export class CanvasView {
         out += `<path d="${route.d}" fill="none" stroke="#2563eb" stroke-width="${px(1)}" stroke-dasharray="${px(3)} ${px(3)}" pointer-events="none" opacity="0.7"/>`;
         if (c.locked) continue;
         // endpoints
-        out += `<circle data-conn-end="source" data-conn-id="${c.id}" cx="${route.start.point.x}" cy="${route.start.point.y}" r="${px(5)}" fill="${c.source.shapeId ? "#2563eb" : "#ffffff"}" stroke="#2563eb" stroke-width="${px(1.5)}" style="cursor:move"/>`;
-        out += `<circle data-conn-end="target" data-conn-id="${c.id}" cx="${route.end.point.x}" cy="${route.end.point.y}" r="${px(5)}" fill="${c.target.shapeId ? "#2563eb" : "#ffffff"}" stroke="#2563eb" stroke-width="${px(1.5)}" style="cursor:move"/>`;
+        out += `<circle data-conn-end="source" data-conn-id="${escapeXML(c.id)}" cx="${route.start.point.x}" cy="${route.start.point.y}" r="${px(5)}" fill="${c.source.shapeId ? "#2563eb" : "#ffffff"}" stroke="#2563eb" stroke-width="${px(1.5)}" style="cursor:move"/>`;
+        out += `<circle data-conn-end="target" data-conn-id="${escapeXML(c.id)}" cx="${route.end.point.x}" cy="${route.end.point.y}" r="${px(5)}" fill="${c.target.shapeId ? "#2563eb" : "#ffffff"}" stroke="#2563eb" stroke-width="${px(1.5)}" style="cursor:move"/>`;
         // waypoints
         c.points.forEach((p, i) => {
-          out += `<rect data-bend="${i}" data-conn-id="${c.id}" x="${p.x - px(4)}" y="${p.y - px(4)}" width="${px(8)}" height="${px(8)}" fill="#ffffff" stroke="#2563eb" stroke-width="${px(1.2)}" style="cursor:move" transform="rotate(45 ${p.x} ${p.y})"/>`;
+          out += `<rect data-bend="${i}" data-conn-id="${escapeXML(c.id)}" x="${p.x - px(4)}" y="${p.y - px(4)}" width="${px(8)}" height="${px(8)}" fill="#ffffff" stroke="#2563eb" stroke-width="${px(1.2)}" style="cursor:move" transform="rotate(45 ${p.x} ${p.y})"/>`;
         });
         // midpoints for inserting waypoints (straight/freeform/elbow only)
         if (c.type !== "curved") {
@@ -231,7 +232,7 @@ export class CanvasView {
           for (let i = 0; i < anchors.length - 1; i++) {
             const mx = (anchors[i].x + anchors[i + 1].x) / 2;
             const my = (anchors[i].y + anchors[i + 1].y) / 2;
-            out += `<circle data-bend-insert="${i}" data-conn-id="${c.id}" cx="${mx}" cy="${my}" r="${px(3.5)}" fill="#ffffff" stroke="#93c5fd" stroke-width="${px(1.2)}" style="cursor:copy" opacity="0.9"/>`;
+            out += `<circle data-bend-insert="${i}" data-conn-id="${escapeXML(c.id)}" cx="${mx}" cy="${my}" r="${px(3.5)}" fill="#ffffff" stroke="#93c5fd" stroke-width="${px(1.2)}" style="cursor:copy" opacity="0.9"/>`;
           }
         }
       }
