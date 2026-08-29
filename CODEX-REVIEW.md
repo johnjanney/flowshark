@@ -1,6 +1,6 @@
 # Codex Quality and Security Review
 
-Review date: 2026-07-07  
+Review date: 2026-08-29  
 Repository: `C:\Users\johnj\Repositories\flowshark`
 
 ## Executive Assessment
