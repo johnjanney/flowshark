@@ -97,6 +97,11 @@ See [VERSIONING.md](VERSIONING.md) for how versions, releases, and the
   selecting each and announcing it through a polite ARIA live region;
   `Enter` edits the selected shape's text. Previously a keyboard-only user
   could reach the toolbar and panels but never an individual diagram object.
+  Traversal stops at the ends rather than wrapping, so Tab still leaves the
+  canvas for the inspector and the canvas never becomes a keyboard trap
+  (WCAG 2.1.2), and it tracks its own cursor rather than deriving one from
+  the selection — the selection group-expands, which would otherwise stall
+  traversal inside a group forever.
 - **Accessibility improvements.** Modal dialogs are `aria-modal`, trap Tab
   focus and restore focus to the invoking control on close; the canvas is
   `role="application"` with an instructional label; `forced-colors` (Windows

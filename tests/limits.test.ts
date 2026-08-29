@@ -245,6 +245,37 @@ describe("document relationship integrity", () => {
     expect(doc.connectors[0].source.shapeId).toBe("a");
     expect(doc.connectors[1].source.anchor).toBe("ne");
   });
+
+  it("validates anchors against the referenced shape, not a global list", () => {
+    // Line and Arrow declare start/end rather than the eight cardinal points.
+    // A global allowlist silently turned their fixed endpoints into floating
+    // ones on reload, which moves the endpoint to whichever anchor is nearest
+    // the other end.
+    const doc = parseDoc(
+      rawDoc({
+        shapes: [
+          { id: "ln", type: "line", x: 0, y: 0, w: 100, h: 100 },
+          { id: "pr", type: "process" },
+        ],
+        connectors: [
+          { id: "cn1", source: { shapeId: "ln", anchor: "start" }, target: {} },
+          { id: "cn2", source: { shapeId: "ln", anchor: "end" }, target: {} },
+          // "n" is valid on a process but not on a line
+          { id: "cn3", source: { shapeId: "ln", anchor: "n" }, target: {} },
+          { id: "cn4", source: { shapeId: "pr", anchor: "n" }, target: {} },
+          // ...and "start" is valid on a line but not on a process
+          { id: "cn5", source: { shapeId: "pr", anchor: "start" }, target: {} },
+        ],
+      })
+    );
+    const anchorOf = (id: string) =>
+      doc.connectors.find((c) => c.id === id)!.source.anchor;
+    expect(anchorOf("cn1")).toBe("start");
+    expect(anchorOf("cn2")).toBe("end");
+    expect(anchorOf("cn3")).toBeNull();
+    expect(anchorOf("cn4")).toBe("n");
+    expect(anchorOf("cn5")).toBeNull();
+  });
 });
 
 describe("render and export bounds", () => {

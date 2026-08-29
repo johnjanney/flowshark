@@ -33,13 +33,16 @@ export function installShortcuts(
    * panels but never an individual shape or connector. Tab/Shift+Tab move
    * through elements in painting order while the canvas has focus, and each
    * move is announced through the canvas live region.
+   *
+   * Returns false when there is nothing further in that direction — an empty
+   * diagram, or the last/first object. The caller must then let the browser
+   * handle Tab normally, so focus leaves the canvas for the inspector or the
+   * toolbar. Swallowing Tab unconditionally would make the canvas a keyboard
+   * trap (WCAG 2.1.2), which is worse than the problem this solves.
    */
-  function traverse(delta: 1 | -1): void {
+  function traverse(delta: 1 | -1): boolean {
     const target = editor.selectAdjacent(delta);
-    if (!target) {
-      view.announce("The diagram is empty.");
-      return;
-    }
+    if (!target) return false;
     const order = editor.documentOrder();
     view.announce(
       describeElement(target, order.findIndex((e) => e.id === target.id), order.length)
@@ -59,6 +62,7 @@ export function installShortcuts(
       }
     }
     view.refresh();
+    return true;
   }
 
   window.addEventListener("keydown", (e) => {
@@ -80,8 +84,17 @@ export function installShortcuts(
     const canvasFocused = document.activeElement === view.svg;
     if (canvasFocused && !ctrl && !e.altKey) {
       if (e.key === "Tab") {
-        e.preventDefault();
-        traverse(e.shiftKey ? -1 : 1);
+        // Only consume Tab while there is another object to move to; at the
+        // ends of the diagram it falls through so focus can leave the canvas.
+        if (traverse(e.shiftKey ? -1 : 1)) {
+          e.preventDefault();
+          return;
+        }
+        view.announce(
+          editor.documentOrder().length === 0
+            ? "The diagram is empty."
+            : "End of diagram."
+        );
         return;
       }
       if (e.key === "Enter") {

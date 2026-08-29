@@ -238,6 +238,21 @@ try {
     ok("Tab selects a diagram object");
   }
 
+  // 15b. Tab past the last object must let focus leave the canvas — a canvas
+  //      that swallows every Tab is a keyboard trap (WCAG 2.1.2).
+  const objectCount = await page
+    .locator('#canvas-svg g[data-kind="shape"], #canvas-svg g[data-kind="connector"]')
+    .count();
+  for (let i = 0; i < objectCount + 1; i++) await page.keyboard.press("Tab");
+  const stillOnCanvas = await page.evaluate(
+    () => document.activeElement?.id === "canvas-svg"
+  );
+  if (stillOnCanvas) {
+    fail(`focus is trapped on the canvas after tabbing past all ${objectCount} objects`);
+  } else {
+    ok("Tab past the last object releases focus from the canvas");
+  }
+
   const errFatal = errors.filter(
     (e) => !e.includes("favicon") && !e.includes("Autofill")
   );

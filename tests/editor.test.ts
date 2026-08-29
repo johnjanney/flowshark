@@ -324,8 +324,48 @@ describe("keyboard traversal of the diagram", () => {
     expect(ed.selectAdjacent(1)!.id).toBe(a.id);
     expect(ed.selectAdjacent(1)!.id).toBe(b.id);
     expect(ed.selectAdjacent(1)!.id).toBe(c.id);
-    expect(ed.selectAdjacent(1)!.id).toBe(a.id); // wraps
-    expect(ed.selectAdjacent(-1)!.id).toBe(c.id);
+    expect(ed.selectAdjacent(-1)!.id).toBe(b.id);
+    expect(ed.selectAdjacent(-1)!.id).toBe(a.id);
+  });
+
+  it("stops at the ends instead of wrapping, so Tab can leave the canvas", () => {
+    // A wrapping Tab would make the canvas a keyboard trap: focus could never
+    // reach the inspector or status bar that follow it in DOM order.
+    const ed = new Editor();
+    const a = addShape(ed);
+    const b = addShape(ed);
+    expect(ed.selectAdjacent(1)!.id).toBe(a.id);
+    expect(ed.selectAdjacent(1)!.id).toBe(b.id);
+    expect(ed.selectAdjacent(1)).toBeNull(); // past the last object
+    expect(ed.selectAdjacent(-1)!.id).toBe(a.id);
+    expect(ed.selectAdjacent(-1)).toBeNull(); // past the first object
+  });
+
+  it("advances past a group instead of stalling inside it", () => {
+    // Selecting a grouped element expands the selection to the whole group,
+    // so a position derived from the selection would always find the group's
+    // first member and traversal would oscillate between its members forever.
+    const ed = new Editor();
+    const a = addShape(ed);
+    const b = addShape(ed);
+    const c = addShape(ed);
+    ed.doc.groups.push({ id: "g1", memberIds: [a.id, b.id] });
+    a.groupId = "g1";
+    b.groupId = "g1";
+    expect(ed.selectAdjacent(1)!.id).toBe(a.id);
+    expect(ed.selectAdjacent(1)!.id).toBe(b.id);
+    expect(ed.selectAdjacent(1)!.id).toBe(c.id);
+    expect(ed.selectAdjacent(1)).toBeNull();
+  });
+
+  it("resumes from whatever the user last selected by other means", () => {
+    const ed = new Editor();
+    const a = addShape(ed);
+    const b = addShape(ed);
+    const c = addShape(ed);
+    void a;
+    ed.select([b.id]); // e.g. a click
+    expect(ed.selectAdjacent(1)!.id).toBe(c.id);
   });
 
   it("includes connectors and skips hidden elements", () => {

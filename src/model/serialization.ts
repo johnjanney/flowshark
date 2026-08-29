@@ -1,6 +1,6 @@
 import type { Connector, FlowDoc, Shape } from "./types";
 import { defaultCanvas, defaultStroke, defaultTextStyle, newDoc } from "./defaults";
-import { SHAPE_DEFS } from "../shapes/registry";
+import { SHAPE_DEFS, getShapeDef, shapeAnchors } from "../shapes/registry";
 import { isSafeId, isSafeImageDataUrl, safeColor } from "../core/safety";
 import {
   LIMITS,
@@ -122,10 +122,11 @@ function validate(obj: Record<string, unknown>): FlowDoc {
     }
   }
   const shapeIds = new Set(doc.shapes.map((s) => s.id));
+  const anchorsByShape = new Map(doc.shapes.map((s) => [s.id, anchorIdsFor(s)] as const));
   if (Array.isArray(obj.connectors)) {
     for (const c of obj.connectors.slice(0, LIMITS.maxConnectors)) {
       if (!isObj(c)) continue;
-      const conn = sanitizeConnector(c, shapeIds);
+      const conn = sanitizeConnector(c, anchorsByShape);
       if (conn && !seen.has(conn.id)) {
         seen.add(conn.id);
         doc.connectors.push(conn);
@@ -257,33 +258,46 @@ const CAPS = new Set([
   "circle", "filled-circle", "square", "filled-square", "bar",
 ]);
 const CONN_TYPES = new Set(["straight", "elbow", "step", "curved", "freeform"]);
-/**
- * The connection-point names every shape definition exposes. An endpoint
- * naming anything else is treated as floating (the router already falls back
- * to the nearest anchor), so a malformed file can't leave a connector bound
- * to a phantom anchor that silently changes behavior between builds.
- */
-const ANCHOR_IDS = new Set(["n", "s", "e", "w", "ne", "nw", "se", "sw"]);
 
-function sanitizeEnd(e: unknown, shapeIds: Set<string>) {
+/**
+ * The connection points a given shape actually declares. Anchor names are
+ * per-shape, not global — most shapes use the eight cardinal points, but
+ * `line` and `arrow` declare `start`/`end` instead — so an endpoint must be
+ * checked against the shape it names. Anything else is treated as floating
+ * (the router already falls back to the nearest anchor), so a malformed file
+ * can't leave a connector bound to a phantom anchor that silently changes
+ * behavior between builds.
+ */
+function anchorIdsFor(shape: Shape): Set<string> {
+  return new Set(shapeAnchors(getShapeDef(shape.type)).map((a) => a.id));
+}
+
+function sanitizeEnd(e: unknown, anchorsByShape: Map<string, Set<string>>) {
   if (!isObj(e)) return { shapeId: null, anchor: null, x: 0, y: 0 };
-  const shapeId = typeof e.shapeId === "string" && shapeIds.has(e.shapeId) ? e.shapeId : null;
+  const shapeId =
+    typeof e.shapeId === "string" && anchorsByShape.has(e.shapeId) ? e.shapeId : null;
+  const allowed = shapeId ? anchorsByShape.get(shapeId)! : null;
   return {
     shapeId,
-    anchor: shapeId && ANCHOR_IDS.has(e.anchor) ? (e.anchor as string) : null,
+    anchor: allowed && typeof e.anchor === "string" && allowed.has(e.anchor)
+      ? e.anchor
+      : null,
     x: clampCoord(num(e.x, 0)),
     y: clampCoord(num(e.y, 0)),
   };
 }
 
-function sanitizeConnector(c: Record<string, any>, shapeIds: Set<string>): Connector | null {
+function sanitizeConnector(
+  c: Record<string, any>,
+  anchorsByShape: Map<string, Set<string>>
+): Connector | null {
   if (!isSafeId(c.id)) return null;
   return {
     id: c.id,
     kind: "connector",
     type: CONN_TYPES.has(c.type) ? c.type : "straight",
-    source: sanitizeEnd(c.source, shapeIds),
-    target: sanitizeEnd(c.target, shapeIds),
+    source: sanitizeEnd(c.source, anchorsByShape),
+    target: sanitizeEnd(c.target, anchorsByShape),
     points: Array.isArray(c.points)
       ? c.points
           .slice(0, LIMITS.maxPointsPerConnector)

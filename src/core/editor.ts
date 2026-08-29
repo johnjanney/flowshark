@@ -65,6 +65,12 @@ export class Editor {
    * until the next save. See recomputeDirty().
    */
   private savedDepth: number | null = 0;
+  /**
+   * The element keyboard traversal is currently sitting on. Distinct from
+   * `selection`, which group-expands. Cleared by any other selection change
+   * so Tab resumes from wherever the user last clicked.
+   */
+  private traversalCursor: string | null = null;
   private listeners = new Set<() => void>();
   clipboard: { shapes: Shape[]; connectors: Connector[]; groups: Group[] } | null = null;
   styleClipboard: StyleClipboard | null = null;
@@ -198,6 +204,7 @@ export class Editor {
     this.savedDepth = 0;
     this.dirty = false;
     this.pasteCount = 0;
+    this.traversalCursor = null;
     this.notify();
   }
 
@@ -264,6 +271,7 @@ export class Editor {
   }
 
   select(ids: string[], additive = false): void {
+    this.traversalCursor = null;
     if (!additive) this.selection.clear();
     for (const id of ids) {
       for (const member of this.expandToGroup(id)) this.selection.add(member);
@@ -272,6 +280,7 @@ export class Editor {
   }
 
   toggleSelect(id: string): void {
+    this.traversalCursor = null;
     const members = this.expandToGroup(id);
     const isSelected = members.every((m) => this.selection.has(m));
     for (const m of members) {
@@ -282,6 +291,7 @@ export class Editor {
   }
 
   selectAll(): void {
+    this.traversalCursor = null;
     this.selection = new Set([
       ...this.doc.shapes.filter((s) => !s.locked).map((s) => s.id),
       ...this.doc.connectors.filter((c) => !c.locked).map((c) => c.id),
@@ -290,6 +300,7 @@ export class Editor {
   }
 
   deselect(): void {
+    this.traversalCursor = null;
     this.selection.clear();
     this.notify();
   }
@@ -306,23 +317,38 @@ export class Editor {
   }
 
   /**
-   * Move the selection to the next/previous element in document order,
-   * wrapping around. Returns the newly selected element, or null when the
-   * document is empty. Used for keyboard-only traversal of the canvas, which
-   * pointer-driven selection alone doesn't provide.
+   * Move the selection to the next/previous element in document order.
+   *
+   * Returns the newly selected element, or **null when there is nothing
+   * further in that direction** (an empty document, or the caller is already
+   * at the last/first element). Traversal deliberately does *not* wrap:
+   * callers bind this to Tab, and a wrapping Tab is a keyboard trap — the
+   * user could never reach the controls after the canvas. Null is the
+   * caller's signal to let focus move on normally.
+   *
+   * The cursor is tracked explicitly rather than derived from the selection,
+   * because selecting a grouped element expands the selection to the whole
+   * group: deriving the position would always find the group's *first*
+   * member and traversal would stall inside the group forever.
    */
   selectAdjacent(delta: 1 | -1): Element | null {
     const order = this.documentOrder();
     if (order.length === 0) return null;
-    const current = order.findIndex((e) => this.selection.has(e.id));
-    const next =
-      current === -1
-        ? delta === 1
-          ? 0
-          : order.length - 1
-        : (current + delta + order.length) % order.length;
+
+    const cursor = this.traversalCursor;
+    let current = cursor === null ? -1 : order.findIndex((e) => e.id === cursor);
+    if (current === -1) {
+      // No cursor (or it points at a deleted element): fall back to where the
+      // current selection sits, so Tab continues from what the user clicked.
+      current = order.findIndex((e) => this.selection.has(e.id));
+    }
+
+    const next = current === -1 ? (delta === 1 ? 0 : order.length - 1) : current + delta;
+    if (next < 0 || next >= order.length) return null;
+
     const target = order[next];
     this.select([target.id]);
+    this.traversalCursor = target.id; // select() cleared it; re-anchor here
     return target;
   }
 

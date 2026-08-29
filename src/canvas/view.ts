@@ -56,7 +56,7 @@ export class CanvasView {
     this.svg.setAttribute("role", "application");
     this.svg.setAttribute(
       "aria-label",
-      "Flowchart canvas. Press Tab or Shift+Tab to move through the diagram's objects, Enter to edit the selected object's text, arrow keys to move it, and Escape to deselect."
+      "Flowchart canvas. Press Tab or Shift+Tab to move through the diagram's objects, Enter to edit the selected object's text, arrow keys to move it, and Escape to deselect. Tab past the last object to leave the canvas."
     );
     this.root = document.createElementNS(SVGNS, "g");
     this.gridLayer = document.createElementNS(SVGNS, "g");

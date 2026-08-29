@@ -191,7 +191,11 @@ Click the canvas once (or Tab to it from the toolbar), then use **Tab** and
 front-to-back order. Each one is selected as you reach it and announced to
 screen readers. From there **Enter** edits its text, the **arrow keys** move
 it, **Delete** removes it, and every command in the table above applies to
-the selection. **Esc** deselects and returns you to the normal Tab order.
+the selection.
+
+Tab past the last object (or Shift+Tab before the first) and focus leaves the
+canvas normally, continuing on to the inspector — the canvas never traps
+focus. **Esc** deselects at any point.
 
 ## 11. Tips
 
